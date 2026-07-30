@@ -13,3 +13,5 @@ futures-util = "0.3"
 lancedb = "0.31"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 markdown-chunk = "0.1.0"
+serde = { version = "1", features = ["derive"] }
+reqwest = { version = "0.12", features = ["json"] }

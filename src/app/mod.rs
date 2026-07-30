@@ -1,15 +1,17 @@
 use std::{env, process::exit};
 
-use crate::app::cli::{ingest, query};
+use crate::app::cli::{ingest, prompt, query};
 
 pub mod cli;
 
-pub const USAGE_MESSAGE: &str = r#"Usage: actall-llm <ingest | query>
+pub const USAGE_MESSAGE: &str = r#"Usage: actall-llm <ingest | query | prompt>
  - ingest <document> --mode [ pdf, markdown ]
    Ingests the given document. If mode isn't specified, it will be inferred by file extension.
    This will erase the current database.
  - query <query...>
    Runs a query on the current database, returning the 3 closest matches.
+ - prompt <model> <query...>
+   Sends a prompt to an Ollama model. The model must be installed with "ollama pull <model>".
 "#;
 
 pub fn run() -> Result<(), String> {
@@ -35,6 +37,12 @@ pub fn run() -> Result<(), String> {
         }
         "query" => query::trigger_query(&args[2..]),
 
+        // Prompt
+        "prompt" if args.len() < 4 => {
+            println!("Usage: actall-llm prompt <model> <query...>");
+            exit(1)
+        }
+        "prompt" => prompt::trigger_prompt(&args[2..]),
         _ => {
             println!("{USAGE_MESSAGE}");
             exit(255);

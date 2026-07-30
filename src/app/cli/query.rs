@@ -7,7 +7,7 @@ use crate::{
 };
 
 /// How many results to return.
-const RESULT_LIMIT: usize = 3;
+pub const RESULT_LIMIT: usize = 3;
 
 pub fn trigger_query(args: &[String]) -> Result<(), String> {
     // Open table

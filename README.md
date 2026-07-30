@@ -6,7 +6,7 @@ Ingestion supports PDF and markdown documents.
 actall-llm ingest <document> --mode [ pdf, markdown ]
 ```
 >[!warn]
->Ingesting a new document will wipe the current database. The database is stored at ".index/database.lancedb"
+>Ingesting a new document will wipe the current database. The database is stored at "./index/database.lancedb"
 
 ## Flags:
 mode: either "pdf" or "markdown". If unspecified, the mode will be guessed based on the file extension.
@@ -15,6 +15,12 @@ mode: either "pdf" or "markdown". If unspecified, the mode will be guessed based
 ```shell
 actall-llm query <query...>
 ```
+
+# Prompt an LLM
+```
+actall-llm prompt <model> <query...>
+```
+Sends a prompt to the specified model. The model will receive supporting information from ingested documents.
 
 # Process
 ## Ingest
