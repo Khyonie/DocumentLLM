@@ -1,0 +1,15 @@
+[package]
+name = "actall-llm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pdf-inspector = { git = "https://github.com/firecrawl/pdf-inspector" }
+fastembed = "5"
+anyhow = "1"
+arrow-array = "58"
+arrow-schema = "58"
+futures-util = "0.3"
+lancedb = "0.31"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+markdown-chunk = "0.1.0"

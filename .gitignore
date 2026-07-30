@@ -1,0 +1,5 @@
+/target
+/.fastembed_cache
+/index
+*.pdf
+WisteriaDocs.md
