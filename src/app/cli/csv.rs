@@ -115,7 +115,8 @@ fn embed_questions(question_answers: Vec<StackOverflowQuestionAnswer>) -> Result
         }
 
         println!("Embedding {i}/{} ({:.2}%) \"{}\"", NUMBER_OF_QUESTIONS, ((i as f32 / NUMBER_OF_QUESTIONS as f32) * 100f32), qa.question.title);
-        println!("- Time remaining: {seconds_remaining}s");
+        let (hours, minutes, seconds) = seconds_to_time_format(seconds_remaining);
+        println!("- Time remaining: {hours}h, {minutes}m, {seconds}s");
         let mut hasher = DefaultHasher::new();
         // Generate chunk ID
         format!("{} @ {}", qa.question.title, qa.id).hash(&mut hasher);
@@ -143,4 +144,29 @@ fn embed_questions(question_answers: Vec<StackOverflowQuestionAnswer>) -> Result
     }
 
     Ok(embeddings)
+}
+
+const MINUTE: usize = 60;
+const HOUR: usize = 60 * MINUTE;
+
+fn seconds_to_time_format(seconds: usize) -> (usize, usize, usize)
+{
+    let mut hours = 0;
+    let mut minutes = 0;
+
+    let mut remaining = seconds;
+
+    while remaining >= HOUR
+    {
+        hours += 1;
+        remaining -= HOUR;
+    }
+
+    while remaining >= MINUTE
+    {
+        minutes += 1;
+        remaining -= MINUTE;
+    }
+
+    (hours, minutes, remaining)
 }
