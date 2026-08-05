@@ -114,7 +114,7 @@ fn embed_questions(question_answers: Vec<StackOverflowQuestionAnswer>) -> Result
             count = 0;
         }
 
-        println!("Embedding {i}/{} ({}%) \"{}\"", NUMBER_OF_QUESTIONS, ((i / NUMBER_OF_QUESTIONS) * 100), qa.question.title);
+        println!("Embedding {i}/{} ({:.2}%) \"{}\"", NUMBER_OF_QUESTIONS, ((i as f32 / NUMBER_OF_QUESTIONS as f32) * 100f32), qa.question.title);
         println!("- Time remaining: {seconds_remaining}s");
         let mut hasher = DefaultHasher::new();
         // Generate chunk ID
