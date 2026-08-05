@@ -19,11 +19,13 @@ pub fn trigger_prompt(args: &[String]) -> Result<(), String> {
     // Build prompt
     let runtime = Runtime::new().map_err(|e| format!("Failed to create Tokio runtime: {e}"))?;
 
+    println!("Building prompt");
     let prompt = args[1..].join(" ");
     let formatted_prompt = runtime.block_on(build_prompt(&prompt))?;
     let message = ChatMessage::new(RoleType::User, formatted_prompt);
 
     // Send prompt
+    println!("Sending prompt to {model_name}");
     let ollama = OllamaClient::new(&model_name);
     let response = runtime.block_on(ollama.chat(vec![role, message]))?;
 

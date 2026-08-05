@@ -1,6 +1,6 @@
 use std::{env, process::exit};
 
-use crate::app::cli::{ingest, prompt, query};
+use crate::app::cli::{csv, ingest, prompt, query};
 
 pub mod cli;
 
@@ -31,7 +31,7 @@ pub fn run() -> Result<(), String> {
             exit(1)
         }
         "ingest" => ingest::trigger_ingest(&args[2..]),
-        "ingest-stackoverflow" => ingest::trigger_stackoverflow(),
+        "ingest-stackoverflow" => csv::trigger_stackoverflow(),
 
         // Query
         "query" if args.len() < 3 => {
