@@ -8,6 +8,8 @@ pub const USAGE_MESSAGE: &str = r#"Usage: actall-llm <ingest | query | prompt>
  - ingest <document> --mode [ pdf, markdown ]
    Ingests the given document. If mode isn't specified, it will be inferred by file extension.
    This will erase the current database.
+ - ingest-stackoverflow
+   Ingests the stackoverflow Q/A. This is a pretty big operation!
  - query <query...>
    Runs a query on the current database, returning the 3 closest matches.
  - prompt <model> <query...>
@@ -29,6 +31,7 @@ pub fn run() -> Result<(), String> {
             exit(1)
         }
         "ingest" => ingest::trigger_ingest(&args[2..]),
+        "ingest-stackoverflow" => ingest::trigger_stackoverflow(),
 
         // Query
         "query" if args.len() < 3 => {

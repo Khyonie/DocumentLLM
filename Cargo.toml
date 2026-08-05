@@ -1,5 +1,5 @@
 [package]
-name = "actall-llm"
+name = "llm-project"
 version = "0.1.0"
 edition = "2024"
 
@@ -14,4 +14,6 @@ lancedb = "0.31"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 markdown-chunk = "0.1.0"
 serde = { version = "1", features = ["derive"] }
+csv = "1.4.0"
 reqwest = { version = "0.12", features = ["json"] }
+html-to-markdown-rs = "3.10.5"
