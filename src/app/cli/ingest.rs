@@ -4,7 +4,9 @@ use fastembed::EmbeddingModel;
 use tokio::runtime::Runtime;
 
 use crate::{
-    adapters::arrow, database::{self}, ingest, model
+    adapters::arrow,
+    database::{self},
+    ingest, model,
 };
 
 pub fn trigger_ingest(args: &[String]) -> Result<(), String> {

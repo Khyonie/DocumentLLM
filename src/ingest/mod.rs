@@ -5,6 +5,7 @@ use fastembed::TextEmbedding;
 use crate::{adapters::pdf, ingest::chunking::DocumentChunk};
 
 pub mod chunking;
+pub mod stackoverflow;
 
 const CHUNK_SIZE: usize = 300;
 

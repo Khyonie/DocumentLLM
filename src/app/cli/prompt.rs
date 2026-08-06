@@ -2,13 +2,16 @@ use fastembed::EmbeddingModel;
 use tokio::runtime::Runtime;
 
 use crate::{
-    app::cli::query::RESULT_LIMIT, database::{
+    app::cli::query::RESULT_LIMIT,
+    database::{
         self,
         retrieval::{SearchHit, search_chunks},
-    }, llm::{
+    },
+    llm::{
         message::{ChatMessage, RoleType},
         ollama::{self, OllamaClient},
-    }, model
+    },
+    model,
 };
 
 pub fn trigger_prompt(args: &[String]) -> Result<(), String> {
@@ -22,6 +25,7 @@ pub fn trigger_prompt(args: &[String]) -> Result<(), String> {
     println!("Building prompt");
     let prompt = args[1..].join(" ");
     let formatted_prompt = runtime.block_on(build_prompt(&prompt))?;
+    println!("{formatted_prompt}");
     let message = ChatMessage::new(RoleType::User, formatted_prompt);
 
     // Send prompt
@@ -40,12 +44,9 @@ async fn build_prompt(query: &str) -> Result<String, String> {
     for source in sources {
         let document_string = format!(
             r#"<source>
-Document: {}
-Index: {}
-
 {}
 </source>"#,
-            source.source, source.chunk_index, source.content
+            source.content
         );
 
         prompt.push_str(&document_string);
