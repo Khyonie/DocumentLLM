@@ -3,7 +3,7 @@ Ingestion supports PDF and markdown documents.
 
 # Ingest a document
 ```shell
-actall-llm ingest <document> --mode [ pdf, markdown ]
+llm-project ingest <document> --mode [ pdf, markdown ]
 ```
 >[!warn]
 >Ingesting a new document will wipe the current database. The database is stored at "./index/database.lancedb"
@@ -13,14 +13,21 @@ mode: either "pdf" or "markdown". If unspecified, the mode will be guessed based
 
 # Perform a query
 ```shell
-actall-llm query <query...>
+llm-project query <query...>
 ```
 
 # Prompt an LLM
 ```
-actall-llm prompt <model> <query...>
+llm-project prompt <model> <query...>
 ```
 Sends a prompt to the specified model. The model will receive supporting information from ingested documents.
+
+# Ingest Stack Overflow answers
+```shell
+llm-project ingest-stackoverflow <summary-model>
+```
+Streams the answer dataset, retains the 1,000 highest-scoring answers, summarizes each related
+question with the selected local Ollama model, and caches summaries under `./index/stackoverflow-summaries`.
 
 # Process
 ## Ingest

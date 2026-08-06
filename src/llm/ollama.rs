@@ -45,7 +45,22 @@ impl OllamaClient {
     }
 
     pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<ChatResponse, String> {
-        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE);
+        self.send_chat(messages, None).await
+    }
+
+    pub async fn chat_without_thinking(
+        &self,
+        messages: Vec<ChatMessage>,
+    ) -> Result<ChatResponse, String> {
+        self.send_chat(messages, Some(false)).await
+    }
+
+    async fn send_chat(
+        &self,
+        messages: Vec<ChatMessage>,
+        think: Option<bool>,
+    ) -> Result<ChatResponse, String> {
+        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE, think);
 
         let response = self
             .client

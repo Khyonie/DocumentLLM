@@ -4214,6 +4214,7 @@ dependencies = [
  "pdf-inspector",
  "reqwest",
  "serde",
+ "serde_json",
  "tokio",
 ]
 

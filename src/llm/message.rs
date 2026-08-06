@@ -37,15 +37,23 @@ pub struct ChatRequest {
     model: String,
     messages: Vec<ChatMessage>,
     stream: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    think: Option<bool>,
     options: ChatOptions,
 }
 
 impl ChatRequest {
-    pub fn new(model: &str, messages: Vec<ChatMessage>, temperature: f32) -> Self {
+    pub fn new(
+        model: &str,
+        messages: Vec<ChatMessage>,
+        temperature: f32,
+        think: Option<bool>,
+    ) -> Self {
         ChatRequest {
             model: String::from(model),
             messages,
             stream: false,
+            think,
             options: ChatOptions { temperature },
         }
     }
