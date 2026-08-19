@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    env, fs,
     path::{Path, PathBuf},
 };
 
@@ -11,7 +11,7 @@ use crate::llm::{
     ollama::OllamaClient,
 };
 
-const SUMMARY_CACHE_PATH: &str = "./index/stackoverflow-summaries";
+const DEFAULT_SUMMARY_CACHE_PATH: &str = "./index/stackoverflow-summaries";
 const SUMMARY_CACHE_VERSION: u32 = 1;
 const SYSTEM_PROMPT: &str = r#"You summarize Stack Overflow questions for semantic retrieval.
 
@@ -35,7 +35,9 @@ pub(super) struct QuestionSummarizer {
 
 impl QuestionSummarizer {
     pub fn new(model: &str) -> Result<Self, String> {
-        let cache_path = PathBuf::from(SUMMARY_CACHE_PATH);
+        let cache_path = env::var("DOCUMENTLLM_SUMMARY_CACHE_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| PathBuf::from(DEFAULT_SUMMARY_CACHE_PATH));
         fs::create_dir_all(&cache_path)
             .map_err(|e| format!("Failed to create summary cache directory: {e}"))?;
 

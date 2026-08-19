@@ -1,19 +1,21 @@
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap, HashSet},
+    env,
     fs::File,
+    path::PathBuf,
 };
 
 use csv::Reader;
 
 use super::model::{Answer, Question, RankedAnswer};
 
-const QUESTIONS_PATH: &str = "stackoverflow-qa/Questions.csv";
-const ANSWERS_PATH: &str = "stackoverflow-qa/Answers.csv";
+const DEFAULT_DATASET_PATH: &str = "stackoverflow-qa";
 
 pub(super) fn read_top_answers(limit: usize) -> Result<Vec<Answer>, String> {
-    let answers_file =
-        File::open(ANSWERS_PATH).map_err(|e| format!("Failed to open {ANSWERS_PATH}: {e}"))?;
+    let answers_path = dataset_path().join("Answers.csv");
+    let answers_file = File::open(&answers_path)
+        .map_err(|e| format!("Failed to open {}: {e}", answers_path.display()))?;
     let mut selected: BinaryHeap<Reverse<RankedAnswer>> = BinaryHeap::with_capacity(limit + 1);
     let mut rejected = 0usize;
     let mut first_error = None;
@@ -54,8 +56,9 @@ pub(super) fn read_top_answers(limit: usize) -> Result<Vec<Answer>, String> {
 pub(super) fn read_questions(
     question_ids: &HashSet<u64>,
 ) -> Result<HashMap<u64, Question>, String> {
-    let questions_file =
-        File::open(QUESTIONS_PATH).map_err(|e| format!("Failed to open {QUESTIONS_PATH}: {e}"))?;
+    let questions_path = dataset_path().join("Questions.csv");
+    let questions_file = File::open(&questions_path)
+        .map_err(|e| format!("Failed to open {}: {e}", questions_path.display()))?;
     let mut questions = HashMap::with_capacity(question_ids.len());
     let mut rejected = 0usize;
     let mut first_error = None;
@@ -80,6 +83,12 @@ pub(super) fn read_questions(
     report_rejected("question", rejected, first_error.as_deref());
     println!("Loaded {} related questions", questions.len());
     Ok(questions)
+}
+
+fn dataset_path() -> PathBuf {
+    env::var("DOCUMENTLLM_STACKOVERFLOW_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(DEFAULT_DATASET_PATH))
 }
 
 fn report_rejected(record_type: &str, count: usize, first_error: Option<&str>) {

@@ -8,7 +8,7 @@ use documentllm_core::chat::ChatService;
 
 mod openai;
 
-const DEFAULT_BIND_ADDRESS: &str = "127.0.0.1:3001";
+const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:3001";
 
 #[derive(Clone)]
 struct AppState {

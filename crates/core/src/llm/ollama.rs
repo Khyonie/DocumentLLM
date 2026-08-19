@@ -1,4 +1,4 @@
-use std::{pin::Pin, time::Duration};
+use std::{env, pin::Pin, time::Duration};
 
 use async_stream::try_stream;
 use futures_util::{Stream, StreamExt};
@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::llm::message::{ChatMessage, ChatRequest, ChatResponse, ChatStreamResponse};
 
-pub const OLLAMA_URL: &str = "http://localhost:11434";
+const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 pub const MODEL_TEMPERATURE: f32 = 0.1;
 pub type ChatStream = Pin<Box<dyn Stream<Item = Result<String, String>> + Send>>;
 pub const SYSTEM_PROMPT: &str = r#"You are a concise technical assistant.
@@ -33,6 +33,7 @@ Rules:
 pub struct OllamaClient {
     client: Client,
     model: String,
+    base_url: String,
 }
 
 impl OllamaClient {
@@ -45,6 +46,10 @@ impl OllamaClient {
         Ok(Self {
             client,
             model: String::from(model),
+            base_url: env::var("DOCUMENTLLM_OLLAMA_URL")
+                .unwrap_or_else(|_| DEFAULT_OLLAMA_URL.to_owned())
+                .trim_end_matches('/')
+                .to_owned(),
         })
     }
 
@@ -95,7 +100,7 @@ impl OllamaClient {
     pub async fn available_models(&self) -> Result<Vec<String>, String> {
         let response = self
             .client
-            .get(format!("{OLLAMA_URL}/api/tags"))
+            .get(format!("{}/api/tags", self.base_url))
             .send()
             .await
             .map_err(|error| format!("Failed to connect to Ollama: {error}"))?
@@ -131,7 +136,7 @@ impl OllamaClient {
 
     async fn send_request(&self, request: &ChatRequest) -> Result<reqwest::Response, String> {
         self.client
-            .post(format!("{OLLAMA_URL}/api/chat"))
+            .post(format!("{}/api/chat", self.base_url))
             .json(request)
             .send()
             .await
