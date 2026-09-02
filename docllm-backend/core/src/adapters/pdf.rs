@@ -10,3 +10,7 @@ pub(crate) fn read_pdf_to_markdown(path: &str) -> Result<String, String> {
         )),
     }
 }
+
+pub fn is_pdf(bytes: &[u8]) -> bool {
+    bytes.starts_with(b"%PDF-")
+}

@@ -2,12 +2,14 @@ use std::{env, net::SocketAddr, sync::Arc};
 
 use axum::{
     Router,
-    routing::{get, post},
+    extract::DefaultBodyLimit,
+    routing::{delete, get, post, put},
 };
 use documentllm_core::chat::ChatService;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod openai;
+mod rag;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:3001";
 
@@ -42,6 +44,15 @@ async fn run() -> Result<(), String> {
         .route("/health", get(health))
         .route("/v1/models", get(openai::list_models))
         .route("/v1/chat/completions", post(openai::chat_completions))
+        .route("/ingest", post(rag::ingest_append))
+        .route("/ingest", put(rag::ingest_new))
+        .route("/ingest", delete(rag::delete))
+        .route(
+            "/upload",
+            get(rag::list_uploads)
+                .post(rag::upload)
+                .layer(DefaultBodyLimit::max(rag::MAX_UPLOAD_BYTES)),
+        )
         .fallback_service(frontend)
         .with_state(state);
 

@@ -62,16 +62,16 @@ impl ChatService {
             .await
             .map_err(|error| format!("Failed to retrieve sources: {error}"))?;
 
-        let mut prompt = String::from("<documentation>\n");
+        let mut prompt = String::from("<documents>\n");
         for source in sources {
             prompt.push_str("<source>\n");
             prompt.push_str(&source.content);
             prompt.push_str("\n</source>\n");
         }
-        prompt.push_str("</documentation>\n");
+        prompt.push_str("</documents>\n");
         prompt.push_str(&format!("<question>\n{query}\n</question>\n\n"));
         prompt.push_str(
-            "Answer the question using the documentation above. Cite relevant sources with their document name.",
+            "Answer the question using the document excerpts above. Cite relevant sources with their available source label or document name.",
         );
 
         Ok(vec![

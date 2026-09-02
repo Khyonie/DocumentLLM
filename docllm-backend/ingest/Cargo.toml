@@ -1,9 +1,0 @@
-[package]
-name = "documentllm-ingest"
-version.workspace = true
-edition.workspace = true
-
-[dependencies]
-documentllm-core = { path = "../core" }
-tokio.workspace = true
-
