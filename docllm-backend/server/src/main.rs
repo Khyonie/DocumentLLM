@@ -5,6 +5,7 @@ use axum::{
     routing::{get, post},
 };
 use documentllm_core::chat::ChatService;
+use tower_http::services::{ServeDir, ServeFile};
 
 mod openai;
 
@@ -28,6 +29,12 @@ async fn run() -> Result<(), String> {
         .unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned())
         .parse::<SocketAddr>()
         .map_err(|error| format!("Invalid DOCUMENTLLM_BIND_ADDRESS: {error}"))?;
+
+    // Frontend
+    let frontend = ServeDir::new("docllm-frontend/dist")
+        .not_found_service(ServeFile::new("frontend/dist/index.html"));
+
+    // Backend
     let state = AppState {
         chat: Arc::new(ChatService::new()?),
     };
@@ -35,7 +42,10 @@ async fn run() -> Result<(), String> {
         .route("/health", get(health))
         .route("/v1/models", get(openai::list_models))
         .route("/v1/chat/completions", post(openai::chat_completions))
+        .fallback_service(frontend)
         .with_state(state);
+
+    // Start web server
     let listener = tokio::net::TcpListener::bind(address)
         .await
         .map_err(|error| format!("Failed to bind server to {address}: {error}"))?;

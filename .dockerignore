@@ -3,9 +3,7 @@
 .codex
 .fastembed_cache
 index
-stackoverflow-qa
 target
 *.pdf
 *.md
 notes.md
-

@@ -58,7 +58,6 @@ services:
     volumes:
       - ./index:/data
       - ./documents:/documents:ro
-      - ./stackoverflow-qa:/stackoverflow-qa:ro
       - fastembed-cache:/cache/fastembed
     depends_on:
       ollama:
