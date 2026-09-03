@@ -591,14 +591,7 @@
 -->
 <main class="app-shell">
   <!-- Chat region. The aria-labelledby link gives screen readers a useful name. -->
-  <section class="chat-panel" aria-labelledby="chat-heading">
-    <header class="chat-header">
-      <div>
-        <h1 id="chat-heading">Document Assistant</h1>
-      </div>
-
-    </header>
-
+  <section class="chat-panel" aria-label="Document chat">
     <!-- {#if ...} conditionally renders markup only when the expression is truthy. -->
     {#if chatError}
       <p class="error">{chatError}</p>

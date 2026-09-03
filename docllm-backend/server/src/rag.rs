@@ -175,7 +175,11 @@ pub(super) async fn ingest_new(
             id: document.id,
             filename: document.filename.clone(),
         });
-        inputs.push(DocumentInput::new(document.path, mode));
+        inputs.push(DocumentInput::with_source_label(
+            document.path,
+            document.filename,
+            mode,
+        ));
     }
 
     let chunk_count = replace_documents_index(&inputs)

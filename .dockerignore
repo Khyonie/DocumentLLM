@@ -2,6 +2,7 @@
 .agents
 .codex
 .fastembed_cache
+fastembed-cache
 index
 node_modules
 upload

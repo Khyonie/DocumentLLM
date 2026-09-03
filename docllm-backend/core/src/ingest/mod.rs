@@ -24,13 +24,34 @@ pub enum DocumentMode {
 
 pub struct DocumentInput {
     pub path: PathBuf,
+    pub source_label: String,
     pub mode: DocumentMode,
 }
 
 impl DocumentInput {
     pub fn new(path: impl Into<PathBuf>, mode: DocumentMode) -> Self {
+        let path = path.into();
+        let source_label = path
+            .file_name()
+            .and_then(|file_name| file_name.to_str())
+            .unwrap_or("Unknown document")
+            .to_owned();
+
+        Self {
+            path,
+            source_label,
+            mode,
+        }
+    }
+
+    pub fn with_source_label(
+        path: impl Into<PathBuf>,
+        source_label: impl Into<String>,
+        mode: DocumentMode,
+    ) -> Self {
         Self {
             path: path.into(),
+            source_label: source_label.into(),
             mode,
         }
     }
@@ -113,26 +134,31 @@ fn process_document(
     })?;
 
     match document.mode {
-        DocumentMode::Pdf => process_pdf(path, embedding_model),
-        DocumentMode::Markdown => process_markdown(path, embedding_model),
+        DocumentMode::Pdf => process_pdf(path, &document.source_label, embedding_model),
+        DocumentMode::Markdown => process_markdown(path, &document.source_label, embedding_model),
     }
 }
 
 /// Reads a PDF, turns it into a markdown intermediate, then chunks it.
-pub fn process_pdf(path: &str, model: &mut TextEmbedding) -> Result<Vec<DocumentChunk>, String> {
+pub fn process_pdf(
+    path: &str,
+    source_label: &str,
+    model: &mut TextEmbedding,
+) -> Result<Vec<DocumentChunk>, String> {
     let markdown = pdf::read_pdf_to_markdown(path).map_err(|e| e.to_string())?;
 
-    chunking::chunk_markdown(model, path, markdown, CHUNK_SIZE)
+    chunking::chunk_markdown(model, source_label, markdown, CHUNK_SIZE)
         .map_err(|e| format!("Failed to embed chunks: {e}"))
 }
 
 pub fn process_markdown(
     path: &str,
+    source_label: &str,
     model: &mut TextEmbedding,
 ) -> Result<Vec<DocumentChunk>, String> {
     let markdown = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read markdown document at {path}: {e}"))?;
 
-    chunking::chunk_markdown(model, path, markdown, CHUNK_SIZE)
+    chunking::chunk_markdown(model, source_label, markdown, CHUNK_SIZE)
         .map_err(|e| format!("Failed to embed chunks: {e}"))
 }

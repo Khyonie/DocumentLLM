@@ -21,7 +21,7 @@ services:
     volumes:
       - ./index:/data
       - ./upload:/app/upload
-      - fastembed-cache:/cache/fastembed
+      - ./fastembed-cache:/cache/fastembed
     ports:
       - "${DOCUMENTLLM_HOST:-0.0.0.0}:3001:3001"
     depends_on:
@@ -33,6 +33,3 @@ services:
       timeout: 5s
       retries: 30
       start_period: 60s
-
-volumes:
-  fastembed-cache:

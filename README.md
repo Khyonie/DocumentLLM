@@ -29,4 +29,9 @@ Persistent runtime data:
 
 - `./index` stores the LanceDB RAG index.
 - `./upload` stores uploaded documents.
-- `fastembed-cache` stores embedding model cache data.
+- `./fastembed-cache` stores FastEmbed's downloaded embedding model files.
+
+FastEmbed downloads the embedding model the first time ingestion or RAG chat
+needs it. After that, it runs from `./fastembed-cache`. If the deployment
+machine cannot reach Hugging Face, warm this cache on a machine with internet
+access first, then copy `./fastembed-cache` to the deployment machine.
