@@ -1,5 +1,6 @@
 # DocumentLLM
-Web server component of a RAG-enhanced LLM stack.
+
+Self-contained RAG chat app for PDF and Markdown documents.
 
 HTTP endpoints:
 | Endpoint             | Type   | Description                                                       |
@@ -7,7 +8,25 @@ HTTP endpoints:
 | /health              | GET    | Returns "ok" if running                                           |
 | /v1/models           | GET    | Returns a list of locally installed models                        |
 | /v1/chat/completions | POST   | Chat with a model                                                 |
-| /ingest              | PUT    | Clears the current RAG database and ingests the selected document |
+| /ingest              | PUT    | Replaces the RAG database with the selected uploaded documents    |
 | /ingest              | POST   | Appends the selected document to the RAG database                 |
 | /ingest              | DELETE | Wipes the current RAG database                                    |
-| /upload              | POST   | Uploads a document to the server                                  |
+| /upload              | GET    | Lists uploaded documents                                          |
+| /upload              | POST   | Uploads one or more documents to the server                       |
+
+## Docker
+
+Build and run the app plus Ollama:
+
+```sh
+docker compose up --build
+```
+
+The app listens on port `3001` by default. Set `DOCUMENTLLM_HOST=127.0.0.1`
+to bind only to localhost.
+
+Persistent runtime data:
+
+- `./index` stores the LanceDB RAG index.
+- `./upload` stores uploaded documents.
+- `fastembed-cache` stores embedding model cache data.

@@ -1,0 +1,573 @@
+:root {
+  /*
+    These are global defaults. They apply to the whole document because
+    src/main.ts imports this CSS file once at app startup.
+  */
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --text: #27152f;
+  --muted: #735f7d;
+  --page: #fbf7ff;
+  --panel: #ffffff;
+  --panel-border: #e6d7f2;
+  --control-border: #c9a4df;
+  --control-focus: #a21caf;
+  --primary: #a21caf;
+  --primary-hover: #86198f;
+  --primary-on: #ffffff;
+  --user-bubble: #9d24a7;
+  --user-label: #fce7ff;
+  --assistant-bubble: #eef6ff;
+  --assistant-border: #cfe4f7;
+  --assistant-border-strong: #9fc8e9;
+  --assistant-heading: #173b63;
+  --assistant-text: #22384d;
+  --assistant-muted: #4b647a;
+  --assistant-link: #155eaa;
+  --assistant-link-hover: #0f477f;
+  --code-bg: #dfeeff;
+  --code-border: #bfdcf4;
+  --code-block-bg: #17324f;
+  --code-block-border: #335f87;
+  color: var(--text);
+  background: var(--page);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  /*
+    Browsers add an 8px body margin by default. Removing it gives the app full
+    control over the page layout.
+  */
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+button,
+select,
+textarea,
+input {
+  /*
+    Form controls do not always inherit fonts consistently across browsers.
+    This keeps buttons, selects, textareas, and inputs visually aligned.
+  */
+  font: inherit;
+}
+
+button {
+  border: 0;
+  border-radius: 6px;
+  padding: 0.65rem 0.9rem;
+  color: var(--primary-on);
+  background: var(--primary);
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+button.danger {
+  background: #dc2626;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+#app {
+  min-height: 100svh;
+}
+
+.app-shell {
+  /*
+    This is the top-level application layout.
+
+    minmax(0, 1fr) lets the chat column shrink without forcing horizontal
+    scrolling when messages are long.
+  */
+  min-height: 100svh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 22rem;
+  gap: 1rem;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.chat-panel,
+.database-panel {
+  /*
+    These panels are the two main work areas. They are deliberately plain: this
+    is a development scaffold, not final product styling.
+  */
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "header"
+    "error"
+    "messages"
+    "composer";
+  min-height: calc(100svh - 2rem);
+}
+
+.chat-header {
+  grid-area: header;
+}
+
+.chat-panel > .error {
+  grid-area: error;
+}
+
+.chat-header,
+.database-panel header {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1rem;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+h1,
+h2,
+p {
+  margin: 0;
+}
+
+h1,
+h2 {
+  padding: 0;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 1.5rem;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+.chat-header p,
+.database-panel header p,
+.empty-state,
+.status,
+small {
+  color: var(--muted);
+}
+
+.model-picker,
+.file-picker,
+.document-picker,
+.composer {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.model-picker {
+  min-width: 12rem;
+}
+
+.model-picker span,
+.file-picker span,
+.document-picker span,
+.composer label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #61366e;
+}
+
+select,
+textarea,
+input[type='file'] {
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: #fffbff;
+  color: var(--text);
+}
+
+select:focus,
+textarea:focus,
+input[type='file']:focus {
+  border-color: var(--control-focus);
+  outline: 3px solid rgba(216, 180, 254, 0.55);
+}
+
+select {
+  padding: 0.55rem 0.65rem;
+}
+
+textarea {
+  min-height: 7rem;
+  resize: vertical;
+  padding: 0.75rem;
+}
+
+.messages {
+  /*
+    The message list owns the scroll area. The header, errors, and composer stay
+    visible around it as the conversation grows.
+  */
+  grid-area: messages;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  overflow: auto;
+}
+
+.message {
+  max-width: min(42rem, 85%);
+  border-radius: 8px;
+  padding: 0.75rem;
+  line-height: 1.45;
+}
+
+.message > strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.message p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+  User messages are plain text, so preserve line breaks as typed.
+*/
+.from-user p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/*
+  Assistant messages are rendered from Markdown.
+*/
+.markdown {
+  color: var(--assistant-text);
+  overflow-wrap: anywhere;
+}
+
+.markdown p {
+  margin: 0.75rem 0;
+}
+
+.markdown strong {
+  font-weight: 700;
+  font-size: 1.05em;
+  color: var(--assistant-heading);
+}
+
+.markdown p:first-child {
+  margin-top: 0;
+}
+
+.markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4 {
+  margin: 1.25rem 0 0.6rem;
+  color: var(--assistant-heading);
+  line-height: 1.2;
+}
+
+.markdown h1 {
+  font-size: 1.35rem;
+}
+
+.markdown h2 {
+  font-size: 1.15rem;
+}
+
+.markdown h3 {
+  font-size: 1rem;
+}
+
+.markdown h4 {
+  font-size: 0.92rem;
+}
+
+.markdown h1:first-child,
+.markdown h2:first-child,
+.markdown h3:first-child,
+.markdown h4:first-child {
+  margin-top: 0;
+}
+
+.markdown ul,
+.markdown ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown li {
+  margin: 0.25rem 0;
+}
+
+.markdown li::marker {
+  color: var(--assistant-muted);
+}
+
+.markdown a {
+  color: var(--assistant-link);
+  font-weight: 600;
+  text-decoration-color: var(--assistant-border-strong);
+  text-underline-offset: 0.15em;
+}
+
+.markdown a:hover {
+  color: var(--assistant-link-hover);
+  text-decoration-color: currentcolor;
+}
+
+.markdown blockquote {
+  margin: 0.75rem 0;
+  border-left: 3px solid var(--assistant-border-strong);
+  padding-left: 0.75rem;
+  color: var(--assistant-muted);
+  background: rgba(207, 228, 247, 0.35);
+}
+
+.markdown code {
+  font-family:
+    "SFMono-Regular",
+    Consolas,
+    "Liberation Mono",
+    monospace;
+}
+
+.markdown :not(pre) > code {
+  border: 1px solid var(--code-border);
+  border-radius: 4px;
+  padding: 0.15rem 0.3rem;
+  color: #143553;
+  background: var(--code-bg);
+}
+
+.markdown pre {
+  margin: 0.75rem 0;
+  border: 1px solid var(--code-block-border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  background: var(--code-block-bg);
+}
+
+.markdown pre code {
+  padding: 0;
+  color: #f8fafc;
+  background: transparent;
+}
+
+.markdown table {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.markdown th {
+  color: var(--assistant-heading);
+  background: rgba(207, 228, 247, 0.55);
+}
+
+.markdown th,
+.markdown td {
+  border: 1px solid var(--assistant-border);
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.markdown hr {
+  margin: 1rem 0;
+  border: 0;
+  border-top: 1px solid var(--assistant-border);
+}
+
+.from-user {
+  align-self: flex-end;
+  color: var(--primary-on);
+  background: var(--user-bubble);
+}
+
+.from-user strong {
+  color: var(--user-label);
+}
+
+.from-assistant {
+  align-self: flex-start;
+  border: 1px solid var(--assistant-border);
+  background: var(--assistant-bubble);
+}
+
+.from-assistant strong {
+  color: var(--assistant-muted);
+}
+
+.typing {
+  color: var(--assistant-muted);
+  font-style: italic;
+}
+
+.from-assistant.is-streaming::after {
+  content: "";
+  display: inline-block;
+  width: 0.45rem;
+  height: 1rem;
+  margin-left: 0.25rem;
+  vertical-align: -0.15rem;
+  border-radius: 999px;
+  background: var(--assistant-border-strong);
+  animation: pulse-cursor 1s ease-in-out infinite;
+}
+
+@keyframes pulse-cursor {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.composer {
+  grid-area: composer;
+  align-content: start;
+  padding: 1rem;
+  border-top: 1px solid var(--panel-border);
+}
+
+.composer-actions {
+  display: flex;
+  gap: 0.75rem;
+  align-items: end;
+  justify-content: flex-end;
+}
+
+.composer-actions .model-picker {
+  width: min(18rem, 100%);
+}
+
+.composer-actions button {
+  min-width: 6rem;
+}
+
+.database-panel {
+  align-self: start;
+}
+
+.database-panel > * + * {
+  margin-top: 1rem;
+}
+
+.file-picker,
+.document-picker,
+.database-actions,
+.database-panel > .empty-state,
+.database-panel > .status,
+.database-panel > .error,
+.selected-files {
+  margin-right: 1rem;
+  margin-left: 1rem;
+}
+
+.selected-files {
+  /*
+    Selected files are shown as a compact list so you can confirm what the
+    browser is about to send before uploading.
+  */
+  display: grid;
+  gap: 0.5rem;
+  padding: 0;
+  list-style: none;
+}
+
+.selected-files li {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.selected-files span {
+  overflow-wrap: anywhere;
+}
+
+.document-picker select[multiple] {
+  min-height: 7rem;
+}
+
+.database-actions {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.status {
+  padding-bottom: 1rem;
+}
+
+.error {
+  margin: 1rem;
+  border: 1px solid #fecaca;
+  border-radius: 6px;
+  padding: 0.75rem;
+  color: #991b1b;
+  background: #fef2f2;
+}
+
+@media (max-width: 820px) {
+  /*
+    On smaller screens, the two-column layout stacks into one column.
+  */
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-panel {
+    min-height: 70svh;
+  }
+
+  .chat-header {
+    display: grid;
+  }
+
+  .model-picker {
+    min-width: 0;
+  }
+
+  .composer-actions {
+    display: grid;
+  }
+
+  .composer-actions .model-picker,
+  .composer-actions button {
+    width: 100%;
+  }
+}

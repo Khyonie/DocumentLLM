@@ -12,7 +12,7 @@ pub struct DocumentChunk {
 }
 
 pub(crate) fn chunk_markdown(
-    mut model: TextEmbedding,
+    model: &mut TextEmbedding,
     file: &str,
     markdown: String,
     chunk_size: usize,
@@ -20,6 +20,7 @@ pub(crate) fn chunk_markdown(
     let markdown_chunks = chunk(&markdown, chunk_size);
     let mut document_chunks: Vec<DocumentChunk> = Vec::new();
 
+    println!("Chunking document \"{file}\"");
     for (index, chunk) in markdown_chunks.iter().enumerate() {
         let mut hasher = DefaultHasher::new();
         // Generate chunk ID

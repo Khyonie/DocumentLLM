@@ -10,7 +10,10 @@ use axum::{
     extract::{Multipart, State},
     http::StatusCode,
 };
-use documentllm_core::ingest::{DocumentMode, replace_document_index};
+use documentllm_core::{
+    database,
+    ingest::{DocumentInput, DocumentMode, replace_documents_index},
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -30,15 +33,41 @@ pub struct UploadListResponse {
     documents: Vec<UploadedDocument>,
 }
 
+#[derive(Serialize)]
+pub struct UploadResponse {
+    documents: Vec<UploadedDocument>,
+}
+
 #[derive(Deserialize)]
 pub struct IngestRequest {
-    document_id: Uuid,
+    #[serde(default)]
+    document_ids: Vec<Uuid>,
+    #[serde(default)]
+    document_id: Option<Uuid>,
+}
+
+impl IngestRequest {
+    fn document_ids(self) -> Vec<Uuid> {
+        let mut ids = self.document_ids;
+
+        if let Some(id) = self.document_id {
+            ids.push(id);
+        }
+
+        let mut unique_ids = Vec::new();
+        for id in ids {
+            if !unique_ids.contains(&id) {
+                unique_ids.push(id);
+            }
+        }
+
+        unique_ids
+    }
 }
 
 #[derive(Serialize)]
 pub struct IngestResponse {
-    id: Uuid,
-    filename: String,
+    documents: Vec<UploadedDocument>,
     chunk_count: usize,
 }
 
@@ -65,13 +94,15 @@ pub(super) async fn list_uploads() -> Result<Json<UploadListResponse>, ApiError>
 pub(super) async fn upload(
     State(_state): State<AppState>,
     mut multipart: Multipart,
-) -> Result<(StatusCode, Json<UploadedDocument>), ApiError> {
+) -> Result<(StatusCode, Json<UploadResponse>), ApiError> {
+    let mut documents = Vec::new();
+
     while let Some(field) = multipart.next_field().await.map_err(|error| ApiError {
         status: StatusCode::BAD_REQUEST,
         message: format!("Processing failed: {error}"),
     })? {
         let field_name = field.name().unwrap_or_default();
-        if field_name != "document" && field_name != "file" {
+        if !is_document_field(field_name) {
             continue;
         }
 
@@ -100,19 +131,20 @@ pub(super) async fn upload(
             io_error(format!("Failed to write upload {}", path.display()), error)
         })?;
 
-        return Ok((
-            StatusCode::CREATED,
-            Json(UploadedDocument {
-                id: document_id,
-                filename,
-            }),
-        ));
+        documents.push(UploadedDocument {
+            id: document_id,
+            filename,
+        });
     }
 
-    Err(ApiError {
-        status: StatusCode::BAD_REQUEST,
-        message: String::from(r#"Missing "document" field in multipart upload"#),
-    })
+    if documents.is_empty() {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: String::from(r#"Missing "documents" field in multipart upload"#),
+        });
+    }
+
+    Ok((StatusCode::CREATED, Json(UploadResponse { documents })))
 }
 
 // PUT /ingest
@@ -120,13 +152,33 @@ pub(super) async fn ingest_new(
     State(_state): State<AppState>,
     Json(request): Json<IngestRequest>,
 ) -> Result<Json<IngestResponse>, ApiError> {
-    let document = find_uploaded_document(request.document_id)?;
-    let mode = DocumentMode::from_path(&document.path).map_err(|message| ApiError {
-        status: StatusCode::BAD_REQUEST,
-        message,
-    })?;
+    let document_ids = request.document_ids();
 
-    let chunk_count = replace_document_index(&document.path, mode)
+    if document_ids.is_empty() {
+        return Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message: String::from("At least one uploaded document must be selected"),
+        });
+    }
+
+    let mut documents = Vec::new();
+    let mut inputs = Vec::new();
+
+    for document_id in document_ids {
+        let document = find_uploaded_document(document_id)?;
+        let mode = DocumentMode::from_path(&document.path).map_err(|message| ApiError {
+            status: StatusCode::BAD_REQUEST,
+            message,
+        })?;
+
+        documents.push(UploadedDocument {
+            id: document.id,
+            filename: document.filename.clone(),
+        });
+        inputs.push(DocumentInput::new(document.path, mode));
+    }
+
+    let chunk_count = replace_documents_index(&inputs)
         .await
         .map_err(|message| ApiError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
@@ -134,8 +186,7 @@ pub(super) async fn ingest_new(
         })?;
 
     Ok(Json(IngestResponse {
-        id: document.id,
-        filename: document.filename,
+        documents,
         chunk_count,
     }))
 }
@@ -150,10 +201,12 @@ pub(super) async fn ingest_append() -> Result<StatusCode, ApiError> {
 
 // DELETE /ingest
 pub(super) async fn delete() -> Result<StatusCode, ApiError> {
-    Err(ApiError {
-        status: StatusCode::NOT_IMPLEMENTED,
-        message: String::from("Clearing the RAG database is not implemented yet"),
-    })
+    database::delete_database().await.map_err(|e| ApiError {
+        status: StatusCode::INTERNAL_SERVER_ERROR,
+        message: e.to_string(),
+    })?;
+
+    Ok(StatusCode::ACCEPTED)
 }
 
 fn find_uploaded_document(id: Uuid) -> Result<UploadedDocumentPath, ApiError> {
@@ -257,6 +310,10 @@ fn uploaded_document_from_dir(
 
 fn upload_document_dir(id: Uuid) -> PathBuf {
     PathBuf::from(UPLOAD_DIRECTORY).join(id.to_string())
+}
+
+fn is_document_field(field_name: &str) -> bool {
+    matches!(field_name, "documents" | "document" | "files" | "file")
 }
 
 fn safe_filename(filename: &str) -> String {

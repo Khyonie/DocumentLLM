@@ -20,9 +20,10 @@ services:
       DOCUMENTLLM_OLLAMA_URL: http://ollama:11434
     volumes:
       - ./index:/data
+      - ./upload:/app/upload
       - fastembed-cache:/cache/fastembed
     ports:
-      - "127.0.0.1:3001:3001"
+      - "${DOCUMENTLLM_HOST:-0.0.0.0}:3001:3001"
     depends_on:
       ollama:
         condition: service_healthy
@@ -33,38 +34,5 @@ services:
       retries: 30
       start_period: 60s
 
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
-    restart: unless-stopped
-    environment:
-      ENABLE_OLLAMA_API: "false"
-      OPENAI_API_BASE_URLS: http://documentllm:3001/v1
-      OPENAI_API_KEYS: documentllm
-    volumes:
-      - open-webui-data:/app/backend/data
-    ports:
-      - "127.0.0.1:3000:8080"
-    depends_on:
-      documentllm:
-        condition: service_healthy
-
-  ingest:
-    build:
-      context: .
-    profiles: ["tools"]
-    entrypoint: ["documentllm-ingest"]
-    environment:
-      DOCUMENTLLM_OLLAMA_URL: http://ollama:11434
-    volumes:
-      - ./index:/data
-      - ./documents:/documents:ro
-      - fastembed-cache:/cache/fastembed
-    depends_on:
-      ollama:
-        condition: service_healthy
-
 volumes:
   fastembed-cache:
-  open-webui-data:
-    external: true
-    name: open-webui

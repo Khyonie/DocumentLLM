@@ -34,7 +34,7 @@ async fn run() -> Result<(), String> {
 
     // Frontend
     let frontend = ServeDir::new("docllm-frontend/dist")
-        .not_found_service(ServeFile::new("frontend/dist/index.html"));
+        .not_found_service(ServeFile::new("docllm-frontend/dist/index.html"));
 
     // Backend
     let state = AppState {

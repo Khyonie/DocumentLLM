@@ -30,6 +30,14 @@ pub async fn open_database() -> Result<Table, Error> {
     database.open_table(DATABASE_NAME).execute().await
 }
 
+pub async fn delete_database() -> Result<(), Error> {
+    let path = database_path();
+    let database = connect(&path).execute().await?;
+    database.drop_all_tables(&[]).await?;
+
+    Ok(())
+}
+
 fn database_path() -> String {
     env::var("DOCUMENTLLM_DATABASE_PATH").unwrap_or_else(|_| DEFAULT_DATABASE_PATH.to_owned())
 }

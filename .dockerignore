@@ -3,7 +3,12 @@
 .codex
 .fastembed_cache
 index
+node_modules
+upload
+dist
 target
+docllm-frontend/node_modules
+docllm-frontend/dist
 *.pdf
 *.md
 notes.md

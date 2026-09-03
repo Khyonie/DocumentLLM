@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{ffi::OsStr, path::PathBuf, sync::Mutex};
 
 use fastembed::{EmbeddingModel, TextEmbedding};
 
@@ -64,7 +64,13 @@ impl ChatService {
 
         let mut prompt = String::from("<documents>\n");
         for source in sources {
-            prompt.push_str("<source>\n");
+            let source_file = PathBuf::from(source.source)
+                .file_stem()
+                .unwrap_or(OsStr::new("(Unknown document)"))
+                .to_string_lossy()
+                .to_string();
+
+            prompt.push_str(&format!("<source source_file={source_file}>\n"));
             prompt.push_str(&source.content);
             prompt.push_str("\n</source>\n");
         }
@@ -73,6 +79,8 @@ impl ChatService {
         prompt.push_str(
             "Answer the question using the document excerpts above. Cite relevant sources with their available source label or document name.",
         );
+
+        println!("{prompt}");
 
         Ok(vec![
             ChatMessage::new(RoleType::System, SYSTEM_PROMPT.to_owned()),
