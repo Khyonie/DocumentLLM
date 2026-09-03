@@ -38,7 +38,7 @@ async fn run() -> Result<(), String> {
 
     // Backend
     let state = AppState {
-        chat: Arc::new(ChatService::new()?),
+        chat: Arc::new(ChatService),
     };
     let router = Router::new()
         .route("/health", get(health))

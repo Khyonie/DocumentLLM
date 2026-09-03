@@ -25,6 +25,13 @@
     content: string
   }
 
+  type RagProvider = 'basic' | 'multiquery-reranked'
+
+  const ragProviders: Array<{ value: RagProvider; label: string }> = [
+    { value: 'basic', label: 'Basic' },
+    { value: 'multiquery-reranked', label: 'Multi-query' },
+  ]
+
   /*
     These response types describe the JSON we expect back from the server.
 
@@ -76,6 +83,7 @@
   */
   let models = $state<string[]>([])
   let selectedModel = $state('')
+  let selectedRagProvider = $state<RagProvider>('basic')
   let prompt = $state('')
   let messages = $state<ChatMessage[]>([])
   let selectedFiles = $state<File[]>([])
@@ -218,6 +226,7 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: selectedModel,
+          rag_provider: selectedRagProvider,
           messages: nextMessages,
           stream: true,
         }),
@@ -505,12 +514,6 @@
     databaseStatus = 'Clearing database...'
 
     try {
-      /*
-        TODO: Add this route to the Rust server.
-
-        Suggested behavior:
-        DELETE /ingest removes the current vector/RAG database contents.
-      */
       await checkedFetch('/ingest', { method: 'DELETE' })
 
       databaseStatus = 'Database cleared.'
@@ -652,6 +655,15 @@
                 <option value={model}>{model}</option>
               {/each}
             {/if}
+          </select>
+        </label>
+
+        <label class="rag-provider-picker">
+          <span>RAG</span>
+          <select bind:value={selectedRagProvider}>
+            {#each ragProviders as provider}
+              <option value={provider.value}>{provider.label}</option>
+            {/each}
           </select>
         </label>
 

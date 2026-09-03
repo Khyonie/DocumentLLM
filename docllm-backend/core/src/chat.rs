@@ -1,51 +1,61 @@
-use std::{collections::BTreeSet, sync::Mutex};
+use std::collections::BTreeSet;
 
 use async_stream::try_stream;
-use fastembed::{EmbeddingModel, TextEmbedding};
 use futures_util::StreamExt;
 
 use crate::{
-    database::{self, retrieval::search_chunks},
+    database::{
+        self,
+        providers::{RetrievalType, retrieve},
+    },
     llm::{
         message::{ChatMessage, RoleType},
         ollama::{ChatStream, OllamaClient, SYSTEM_PROMPT},
     },
-    model,
 };
 
 const RESULT_LIMIT: usize = 3;
 
-pub struct ChatService {
-    embedding_model: Mutex<Option<TextEmbedding>>,
-}
+#[derive(Default)]
+pub struct ChatService;
 
 impl ChatService {
-    pub fn new() -> Result<Self, String> {
-        Ok(Self {
-            embedding_model: Mutex::new(None),
-        })
-    }
-
-    pub async fn answer(&self, model: &str, query: &str) -> Result<String, String> {
-        let context = self.context_for_query(query).await?;
+    pub async fn answer(
+        &self,
+        model: &str,
+        rag_provider: RetrievalType,
+        query: &str,
+    ) -> Result<String, String> {
+        let context = self.context_for_query(model, rag_provider, query).await?;
         let mut answer = OllamaClient::new(model)?.chat(context.messages).await?;
-        answer.push_str(&context.sources_section);
+        append_sources_if_supported(&mut answer, &context.sources_section);
 
         Ok(answer)
     }
 
-    pub async fn stream_answer(&self, model: &str, query: &str) -> Result<ChatStream, String> {
-        let context = self.context_for_query(query).await?;
+    pub async fn stream_answer(
+        &self,
+        model: &str,
+        rag_provider: RetrievalType,
+        query: &str,
+    ) -> Result<ChatStream, String> {
+        let context = self.context_for_query(model, rag_provider, query).await?;
         let mut answer = OllamaClient::new(model)?
             .stream_chat(context.messages)
             .await?;
         let sources_section = context.sources_section;
         let stream = try_stream! {
+            let mut answer_text = String::new();
+
             while let Some(fragment) = answer.next().await {
-                yield fragment?;
+                let fragment = fragment?;
+                answer_text.push_str(&fragment);
+                yield fragment;
             }
 
-            yield sources_section;
+            if should_include_sources(&answer_text) {
+                yield sources_section;
+            }
         };
 
         Ok(Box::pin(stream))
@@ -55,13 +65,17 @@ impl ChatService {
         OllamaClient::new("")?.available_models().await
     }
 
-    async fn context_for_query(&self, query: &str) -> Result<ChatContext, String> {
-        let query_embedding = self.query_embedding(query)?;
-
+    async fn context_for_query(
+        &self,
+        model: &str,
+        rag_provider: RetrievalType,
+        query: &str,
+    ) -> Result<ChatContext, String> {
         let table = database::open_database()
             .await
             .map_err(|error| format!("Failed to open database table: {error}"))?;
-        let sources = search_chunks(&table, &query_embedding, RESULT_LIMIT)
+
+        let sources = retrieve(rag_provider, &table, query, model, RESULT_LIMIT)
             .await
             .map_err(|error| format!("Failed to retrieve sources: {error}"))?;
 
@@ -89,8 +103,6 @@ impl ChatService {
         prompt.push_str(&format!("<question>\n{query}\n</question>\n\n"));
         prompt.push_str("Answer the question using the document excerpts above. Write only the answer body. Do not include citations, footnotes, or a Sources section.");
 
-        println!("{prompt}");
-
         Ok(ChatContext {
             messages: vec![
                 ChatMessage::new(RoleType::System, SYSTEM_PROMPT.to_owned()),
@@ -98,29 +110,6 @@ impl ChatService {
             ],
             sources_section: format_sources_section(source_labels),
         })
-    }
-
-    fn query_embedding(&self, query: &str) -> Result<Vec<f32>, String> {
-        let mut embedding_model = self
-            .embedding_model
-            .lock()
-            .map_err(|_| String::from("Embedding model lock was poisoned"))?;
-
-        if embedding_model.is_none() {
-            *embedding_model = Some(
-                model::init_model(EmbeddingModel::AllMiniLML6V2)
-                    .map_err(|error| format!("Failed to initialize embedding model: {error}"))?,
-            );
-        }
-
-        embedding_model
-            .as_mut()
-            .ok_or_else(|| String::from("Embedding model was not initialized"))?
-            .embed(vec![query], None)
-            .map_err(|error| format!("Failed to embed query: {error}"))?
-            .into_iter()
-            .next()
-            .ok_or_else(|| String::from("Embedding model returned no query embedding"))
     }
 }
 
@@ -142,4 +131,52 @@ fn format_sources_section(sources: BTreeSet<String>) -> String {
     }
 
     section
+}
+
+fn append_sources_if_supported(answer: &mut String, sources_section: &str) {
+    if should_include_sources(answer) {
+        answer.push_str(sources_section);
+    }
+}
+
+fn should_include_sources(answer: &str) -> bool {
+    let normalized = answer.to_ascii_lowercase();
+    let cannot_answer_phrases = [
+        "available documents cannot",
+        "cannot sufficiently answer",
+        "can't sufficiently answer",
+        "do not contain enough",
+        "don't contain enough",
+        "does not contain enough",
+        "not enough information",
+        "insufficient information",
+        "cannot answer",
+        "can't answer",
+        "unable to answer",
+        "not provided",
+        "not covered",
+    ];
+
+    !cannot_answer_phrases
+        .iter()
+        .any(|phrase| normalized.contains(phrase))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_include_sources;
+
+    #[test]
+    fn includes_sources_for_supported_answer() {
+        assert!(should_include_sources(
+            "The project supports PDF and Markdown ingestion."
+        ));
+    }
+
+    #[test]
+    fn skips_sources_for_insufficient_answer() {
+        assert!(!should_include_sources(
+            "The available documents cannot sufficiently answer this question."
+        ));
+    }
 }

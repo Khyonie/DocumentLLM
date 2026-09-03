@@ -1,7 +1,9 @@
 use arrow_array::RecordBatch;
+use fastembed::TextEmbedding;
 use lancedb::{Error, Table, connect, database::CreateTableMode};
 use std::env;
 
+pub mod providers;
 pub mod retrieval;
 
 const DEFAULT_DATABASE_PATH: &str = "./index/database.lancedb";
@@ -40,4 +42,13 @@ pub async fn delete_database() -> Result<(), Error> {
 
 fn database_path() -> String {
     env::var("DOCUMENTLLM_DATABASE_PATH").unwrap_or_else(|_| DEFAULT_DATABASE_PATH.to_owned())
+}
+
+pub fn embed_query(
+    query: &str,
+    embedding_model: &mut TextEmbedding,
+) -> Result<Option<Vec<f32>>, fastembed::Error> {
+    let value = embedding_model.embed(vec![query], None)?.into_iter().next();
+
+    Ok(value)
 }

@@ -1,6 +1,6 @@
 # DocumentLLM
 
-Self-contained RAG chat app for PDF and Markdown documents.
+Self-contained RAG chat app for PDF and Markdown documents, with multi-query rewriting, dedupe, and reranking.
 
 HTTP endpoints:
 | Endpoint             | Type   | Description                                                       |

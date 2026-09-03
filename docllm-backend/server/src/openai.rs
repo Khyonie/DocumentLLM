@@ -10,6 +10,8 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
+use documentllm_core::database::providers::RetrievalType;
+
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -18,6 +20,8 @@ pub(super) struct ChatCompletionRequest {
     messages: Vec<RequestMessage>,
     #[serde(default)]
     stream: bool,
+    #[serde(default)]
+    rag_provider: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -40,11 +44,18 @@ pub(super) async fn chat_completions(
         .ok_or_else(|| ApiError::bad_request("A non-empty user message is required"))?;
     let id = completion_id();
     let created = unix_timestamp();
+    let rag_provider = request
+        .rag_provider
+        .as_deref()
+        .map(str::parse)
+        .transpose()
+        .map_err(ApiError::bad_request)?
+        .unwrap_or_else(RetrievalType::from_env);
 
     if request.stream {
         let mut answer = state
             .chat
-            .stream_answer(&request.model, query)
+            .stream_answer(&request.model, rag_provider, query)
             .await
             .map_err(ApiError::upstream)?;
         let model = request.model;
@@ -74,7 +85,7 @@ pub(super) async fn chat_completions(
 
     let content = state
         .chat
-        .answer(&request.model, query)
+        .answer(&request.model, rag_provider, query)
         .await
         .map_err(ApiError::upstream)?;
     Ok(Json(CompletionResponse::new(id, created, request.model, content)).into_response())
