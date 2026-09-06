@@ -195,6 +195,8 @@ async fn rerank(
         .await
         .map_err(|error| anyhow!(error))?;
 
+    println!("{}", response.message().content);
+
     let reranked: RerankResponse = serde_json::from_str(response.message().content.trim())
         .map_err(|error| anyhow!("Failed to parse reranked chunks: {error}"))?;
 

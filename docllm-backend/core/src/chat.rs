@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use async_stream::try_stream;
 use futures_util::StreamExt;
@@ -79,12 +79,18 @@ impl ChatService {
             .await
             .map_err(|error| format!("Failed to retrieve sources: {error}"))?;
 
-        let mut source_labels = BTreeSet::new();
+        let mut source_numbers = BTreeMap::new();
+        let mut source_labels = Vec::new();
         let mut prompt = String::from("<documents>\n");
         for source in sources {
-            source_labels.insert(source.source.clone());
+            let source_number = source_number(
+                &mut source_numbers,
+                &mut source_labels,
+                source.source.clone(),
+            );
 
             prompt.push_str("<excerpt>\n");
+            prompt.push_str(&format!("<source_number>{source_number}</source_number>\n"));
             prompt.push_str(&format!("<document>{}</document>\n", source.source));
             prompt.push_str(&format!("<chunk>{}</chunk>\n", source.chunk_index));
             prompt.push_str("<content>\n");
@@ -94,21 +100,19 @@ impl ChatService {
         }
         prompt.push_str("</documents>\n");
         prompt.push_str("<available_sources>\n");
-        for source_label in &source_labels {
-            prompt.push_str("- ");
-            prompt.push_str(source_label);
-            prompt.push('\n');
+        for (index, source_label) in source_labels.iter().enumerate() {
+            prompt.push_str(&format!("{}. {}\n", index + 1, source_label));
         }
         prompt.push_str("</available_sources>\n");
         prompt.push_str(&format!("<question>\n{query}\n</question>\n\n"));
-        prompt.push_str("Answer the question using the document excerpts above. Write only the answer body. Do not include citations, footnotes, or a Sources section.");
+        prompt.push_str("Answer the question using the document excerpts above. Cite document-supported claims with numbered superscripts like <sup>1</sup>, matching the source numbers in <available_sources>. Use a citation only when the claim is supported by that source. Do not include footnotes or a Sources section.");
 
         Ok(ChatContext {
             messages: vec![
                 ChatMessage::new(RoleType::System, SYSTEM_PROMPT.to_owned()),
                 ChatMessage::new(RoleType::User, prompt),
             ],
-            sources_section: format_sources_section(source_labels),
+            sources_section: format_sources_section(&source_labels),
         })
     }
 }
@@ -118,19 +122,35 @@ struct ChatContext {
     sources_section: String,
 }
 
-fn format_sources_section(sources: BTreeSet<String>) -> String {
+fn format_sources_section(sources: &[String]) -> String {
     if sources.is_empty() {
         return String::new();
     }
 
     let mut section = String::from("\n\n**Sources**\n");
-    for source in sources {
-        section.push_str("- ");
-        section.push_str(&source);
+    for (index, source) in sources.iter().enumerate() {
+        section.push_str(&format!("{}. ", index + 1));
+        section.push_str(source);
         section.push('\n');
     }
 
     section
+}
+
+fn source_number(
+    source_numbers: &mut BTreeMap<String, usize>,
+    source_labels: &mut Vec<String>,
+    source: String,
+) -> usize {
+    if let Some(number) = source_numbers.get(&source) {
+        return *number;
+    }
+
+    let number = source_labels.len() + 1;
+    source_labels.push(source.clone());
+    source_numbers.insert(source, number);
+
+    number
 }
 
 fn append_sources_if_supported(answer: &mut String, sources_section: &str) {

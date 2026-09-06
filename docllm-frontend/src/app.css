@@ -357,6 +357,13 @@ textarea {
   text-decoration-color: currentcolor;
 }
 
+.markdown sup {
+  vertical-align: super;
+  font-size: 0.72em;
+  line-height: 0;
+  color: var(--assistant-link);
+}
+
 .markdown blockquote {
   margin: 0.75rem 0;
   border-left: 3px solid var(--assistant-border-strong);
