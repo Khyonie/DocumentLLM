@@ -1,3 +1,4 @@
+use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
 /// A message a user will send to an LLM, along with the system context.
@@ -40,6 +41,8 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     think: Option<bool>,
     options: ChatOptions,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    format: Option<Schema>,
 }
 
 impl ChatRequest {
@@ -49,6 +52,7 @@ impl ChatRequest {
         temperature: f32,
         think: Option<bool>,
         stream: bool,
+        format: Option<Schema>,
     ) -> Self {
         ChatRequest {
             model: String::from(model),
@@ -56,6 +60,7 @@ impl ChatRequest {
             stream,
             think,
             options: ChatOptions { temperature },
+            format,
         }
     }
 }

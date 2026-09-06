@@ -16,4 +16,5 @@ fastembed = "5"
 lancedb = "0.31"
 markdown-chunk = "0.1.0"
 pdf-inspector = "1"
+schemars = "1.2.2"
 reqwest = { version = "0.12", features = ["json", "stream"] }

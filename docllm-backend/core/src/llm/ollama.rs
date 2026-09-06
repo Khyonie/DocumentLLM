@@ -3,7 +3,8 @@ use std::{env, pin::Pin, time::Duration};
 use async_stream::try_stream;
 use futures_util::{Stream, StreamExt};
 use reqwest::Client;
-use serde::Deserialize;
+use schemars::{JsonSchema, schema_for};
+use serde::{Deserialize, de::DeserializeOwned};
 
 use crate::llm::message::{ChatMessage, ChatRequest, ChatResponse, ChatStreamResponse};
 
@@ -72,7 +73,7 @@ impl OllamaClient {
     }
 
     pub async fn stream_chat(&self, messages: Vec<ChatMessage>) -> Result<ChatStream, String> {
-        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE, None, true);
+        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE, None, true, None);
         let response = self.send_request(&request).await?;
         let mut bytes = response.bytes_stream();
         let stream = try_stream! {
@@ -134,7 +135,7 @@ impl OllamaClient {
         temperature: f32,
         think: Option<bool>,
     ) -> Result<ChatResponse, String> {
-        let request = ChatRequest::new(&self.model, messages, temperature, think, false);
+        let request = ChatRequest::new(&self.model, messages, temperature, think, false, None);
 
         let response = self
             .send_request(&request)
@@ -144,6 +145,35 @@ impl OllamaClient {
             .map_err(|e| format!("Failed to deserialize response: {e}"))?;
 
         Ok(response)
+    }
+
+    pub async fn send_structured_chat<T>(
+        &self,
+        messages: Vec<ChatMessage>,
+        temperature: f32,
+        think: Option<bool>,
+    ) -> Result<T, String>
+    where
+        T: DeserializeOwned + JsonSchema,
+    {
+        let request = ChatRequest::new(
+            &self.model,
+            messages,
+            temperature,
+            think,
+            false,
+            Some(schema_for!(T)),
+        );
+
+        let response = self
+            .send_request(&request)
+            .await?
+            .json::<ChatResponse>()
+            .await
+            .map_err(|e| format!("Failed to deserialize response: {e}"))?;
+
+        serde_json::from_str(response.message().content.trim())
+            .map_err(|e| format!("Failed to deserialize structured LLM response: {e}"))
     }
 
     async fn send_request(&self, request: &ChatRequest) -> Result<reqwest::Response, String> {
