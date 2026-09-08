@@ -228,7 +228,6 @@
           model: selectedModel,
           rag_provider: selectedRagProvider,
           messages: nextMessages,
-          stream: true,
         }),
       })
 

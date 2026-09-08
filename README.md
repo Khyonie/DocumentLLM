@@ -14,6 +14,10 @@ HTTP endpoints:
 | /upload              | GET    | Lists uploaded documents                                          |
 | /upload              | POST   | Uploads one or more documents to the server                       |
 
+Chat responses always stream as OpenAI-style SSE chunks and end with `data: [DONE]`.
+The request does not need a `stream` flag; any supplied value is ignored.
+Structured utility calls also stream from Ollama, then collect the JSON before parsing it.
+
 ## Docker
 
 Build and run the app plus Ollama:

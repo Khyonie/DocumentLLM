@@ -51,13 +51,12 @@ impl ChatRequest {
         messages: Vec<ChatMessage>,
         temperature: f32,
         think: Option<bool>,
-        stream: bool,
         format: Option<Schema>,
     ) -> Self {
         ChatRequest {
             model: String::from(model),
             messages,
-            stream,
+            stream: true,
             think,
             options: ChatOptions { temperature },
             format,
@@ -69,17 +68,6 @@ impl ChatRequest {
 pub struct ChatStreamResponse {
     pub message: Option<ChatMessage>,
     pub error: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct ChatResponse {
-    message: ChatMessage,
-}
-
-impl ChatResponse {
-    pub fn message(&self) -> &ChatMessage {
-        &self.message
-    }
 }
 
 #[derive(Serialize)]

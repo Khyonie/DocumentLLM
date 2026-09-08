@@ -6,7 +6,7 @@ use reqwest::Client;
 use schemars::{JsonSchema, schema_for};
 use serde::{Deserialize, de::DeserializeOwned};
 
-use crate::llm::message::{ChatMessage, ChatRequest, ChatResponse, ChatStreamResponse};
+use crate::llm::message::{ChatMessage, ChatRequest, ChatStreamResponse};
 
 const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
 pub const MODEL_TEMPERATURE: f32 = 0.1;
@@ -56,25 +56,13 @@ impl OllamaClient {
         })
     }
 
-    pub async fn chat(&self, messages: Vec<ChatMessage>) -> Result<String, String> {
-        Ok(self
-            .send_chat(messages, None)
-            .await?
-            .message()
-            .content
-            .clone())
-    }
-
-    pub async fn chat_without_thinking(
-        &self,
-        messages: Vec<ChatMessage>,
-    ) -> Result<ChatResponse, String> {
-        self.send_chat(messages, Some(false)).await
-    }
-
     pub async fn stream_chat(&self, messages: Vec<ChatMessage>) -> Result<ChatStream, String> {
-        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE, None, true, None);
-        let response = self.send_request(&request).await?;
+        let request = ChatRequest::new(&self.model, messages, MODEL_TEMPERATURE, None, None);
+        self.send_streaming_request(&request).await
+    }
+
+    async fn send_streaming_request(&self, request: &ChatRequest) -> Result<ChatStream, String> {
+        let response = self.send_request(request).await?;
         let mut bytes = response.bytes_stream();
         let stream = try_stream! {
             let mut buffer = Vec::new();
@@ -120,33 +108,6 @@ impl OllamaClient {
             .collect())
     }
 
-    async fn send_chat(
-        &self,
-        messages: Vec<ChatMessage>,
-        think: Option<bool>,
-    ) -> Result<ChatResponse, String> {
-        self.send_chat_with_temperature(messages, MODEL_TEMPERATURE, think)
-            .await
-    }
-
-    pub async fn send_chat_with_temperature(
-        &self,
-        messages: Vec<ChatMessage>,
-        temperature: f32,
-        think: Option<bool>,
-    ) -> Result<ChatResponse, String> {
-        let request = ChatRequest::new(&self.model, messages, temperature, think, false, None);
-
-        let response = self
-            .send_request(&request)
-            .await?
-            .json::<ChatResponse>()
-            .await
-            .map_err(|e| format!("Failed to deserialize response: {e}"))?;
-
-        Ok(response)
-    }
-
     pub async fn send_structured_chat<T>(
         &self,
         messages: Vec<ChatMessage>,
@@ -161,18 +122,17 @@ impl OllamaClient {
             messages,
             temperature,
             think,
-            false,
             Some(schema_for!(T)),
         );
 
-        let response = self
-            .send_request(&request)
-            .await?
-            .json::<ChatResponse>()
-            .await
-            .map_err(|e| format!("Failed to deserialize response: {e}"))?;
+        // Schema-constrained JSON must be complete before it can be deserialized.
+        let mut fragments = self.send_streaming_request(&request).await?;
+        let mut content = String::new();
+        while let Some(fragment) = fragments.next().await {
+            content.push_str(&fragment?);
+        }
 
-        serde_json::from_str(response.message().content.trim())
+        serde_json::from_str(content.trim())
             .map_err(|e| format!("Failed to deserialize structured LLM response: {e}"))
     }
 
@@ -211,4 +171,98 @@ struct ModelList {
 #[derive(Deserialize)]
 struct ModelDetails {
     name: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{Value, json};
+    use tokio::{
+        io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
+        net::TcpListener,
+        task::JoinHandle,
+    };
+
+    #[derive(Debug, Deserialize, JsonSchema, PartialEq)]
+    struct UtilityResponse {
+        queries: Vec<String>,
+    }
+
+    async fn mock_ollama(body: String) -> (OllamaClient, JoinHandle<Value>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base_url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut socket = BufReader::new(socket);
+            let mut line = String::new();
+            socket.read_line(&mut line).await.unwrap();
+            assert_eq!(line, "POST /api/chat HTTP/1.1\r\n");
+            let mut content_length = None;
+            loop {
+                line.clear();
+                assert_ne!(socket.read_line(&mut line).await.unwrap(), 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some((name, value)) = line.split_once(':') {
+                    if name.eq_ignore_ascii_case("content-length") {
+                        content_length = Some(value.trim().parse::<usize>().unwrap());
+                    }
+                }
+            }
+            let mut request = vec![0; content_length.unwrap()];
+            socket.read_exact(&mut request).await.unwrap();
+            let headers = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            socket.write_all(headers.as_bytes()).await.unwrap();
+            socket.write_all(body.as_bytes()).await.unwrap();
+            socket.shutdown().await.unwrap();
+            serde_json::from_slice(&request).unwrap()
+        });
+        let client = OllamaClient {
+            client: Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            model: "test-model".to_owned(),
+            base_url,
+        };
+        (client, server)
+    }
+
+    #[tokio::test]
+    async fn structured_chat_collects_streamed_json_and_sends_schema() {
+        let first = json!({"message": {"role": "assistant", "content": " {\"queries\":["}});
+        let last = json!({"message": {"role": "assistant", "content": "\"PDF\",\"Markdown\"]} "}, "done": true});
+        let (client, server) = mock_ollama(format!("{first}\r\n\n{last}")).await;
+        let result = client
+            .send_structured_chat::<UtilityResponse>(vec![], 0.2, Some(false))
+            .await;
+        let request = server.await.unwrap();
+        assert_eq!(result.unwrap().queries, vec!["PDF", "Markdown"]);
+        assert_eq!(request["stream"], true);
+        assert_eq!(request["think"], false);
+        assert_eq!(request["model"], "test-model");
+        assert_eq!(
+            request["format"],
+            serde_json::to_value(schema_for!(UtilityResponse)).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn structured_chat_propagates_stream_errors() {
+        let first = json!({"message": {"role": "assistant", "content": "{\"queries\":["}});
+        let (client, server) =
+            mock_ollama(format!("{first}\n{{\"error\":\"model failed\"}}\n")).await;
+        let result = client
+            .send_structured_chat::<UtilityResponse>(vec![], 0.1, Some(false))
+            .await;
+        server.await.unwrap();
+        assert_eq!(
+            result.unwrap_err(),
+            "Ollama responded with an error: model failed"
+        );
+    }
 }

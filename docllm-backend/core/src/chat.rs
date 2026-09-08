@@ -20,19 +20,6 @@ const RESULT_LIMIT: usize = 3;
 pub struct ChatService;
 
 impl ChatService {
-    pub async fn answer(
-        &self,
-        model: &str,
-        rag_provider: RetrievalType,
-        query: &str,
-    ) -> Result<String, String> {
-        let context = self.context_for_query(model, rag_provider, query).await?;
-        let mut answer = OllamaClient::new(model)?.chat(context.messages).await?;
-        append_sources_if_supported(&mut answer, &context.sources_section);
-
-        Ok(answer)
-    }
-
     pub async fn stream_answer(
         &self,
         model: &str,
@@ -151,12 +138,6 @@ fn source_number(
     source_numbers.insert(source, number);
 
     number
-}
-
-fn append_sources_if_supported(answer: &mut String, sources_section: &str) {
-    if should_include_sources(answer) {
-        answer.push_str(sources_section);
-    }
 }
 
 fn should_include_sources(answer: &str) -> bool {

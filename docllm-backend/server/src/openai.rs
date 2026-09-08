@@ -10,7 +10,7 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use documentllm_core::database::providers::RetrievalType;
+use documentllm_core::{database::providers::RetrievalType, llm::ollama::ChatStream};
 
 use crate::AppState;
 
@@ -18,8 +18,6 @@ use crate::AppState;
 pub(super) struct ChatCompletionRequest {
     model: String,
     messages: Vec<RequestMessage>,
-    #[serde(default)]
-    stream: bool,
     #[serde(default)]
     rag_provider: Option<String>,
 }
@@ -52,43 +50,37 @@ pub(super) async fn chat_completions(
         .map_err(ApiError::bad_request)?
         .unwrap_or_else(RetrievalType::from_env);
 
-    if request.stream {
-        let mut answer = state
-            .chat
-            .stream_answer(&request.model, rag_provider, query)
-            .await
-            .map_err(ApiError::upstream)?;
-        let model = request.model;
-        let events = stream! {
-            while let Some(fragment) = answer.next().await {
-                match fragment {
-                    Ok(content) => {
-                        let chunk = StreamChunk::content(&id, created, &model, content);
-                        yield Ok::<Event, Infallible>(json_event(&chunk));
-                    }
-                    Err(error) => {
-                        let body = ErrorEnvelope::new(error);
-                        yield Ok(json_event(&body));
-                        yield Ok(Event::default().data("[DONE]"));
-                        return;
-                    }
-                }
-            }
-
-            let chunk = StreamChunk::finished(&id, created, &model);
-            yield Ok(json_event(&chunk));
-            yield Ok(Event::default().data("[DONE]"));
-        };
-
-        return Ok(Sse::new(events).into_response());
-    }
-
-    let content = state
+    let answer = state
         .chat
-        .answer(&request.model, rag_provider, query)
+        .stream_answer(&request.model, rag_provider, query)
         .await
         .map_err(ApiError::upstream)?;
-    Ok(Json(CompletionResponse::new(id, created, request.model, content)).into_response())
+    Ok(stream_response(answer, id, created, request.model))
+}
+
+fn stream_response(mut answer: ChatStream, id: String, created: u64, model: String) -> Response {
+    let events = stream! {
+        while let Some(fragment) = answer.next().await {
+            match fragment {
+                Ok(content) => {
+                    let chunk = StreamChunk::content(&id, created, &model, content);
+                    yield Ok::<Event, Infallible>(json_event(&chunk));
+                }
+                Err(error) => {
+                    let body = ErrorEnvelope::new(error);
+                    yield Ok(json_event(&body));
+                    yield Ok(Event::default().data("[DONE]"));
+                    return;
+                }
+            }
+        }
+
+        let chunk = StreamChunk::finished(&id, created, &model);
+        yield Ok(json_event(&chunk));
+        yield Ok(Event::default().data("[DONE]"));
+    };
+
+    Sse::new(events).into_response()
 }
 
 pub(super) async fn list_models(
@@ -147,47 +139,6 @@ struct Model {
     id: String,
     object: &'static str,
     owned_by: &'static str,
-}
-
-#[derive(Serialize)]
-struct CompletionResponse {
-    id: String,
-    object: &'static str,
-    created: u64,
-    model: String,
-    choices: Vec<CompletionChoice>,
-}
-
-impl CompletionResponse {
-    fn new(id: String, created: u64, model: String, content: String) -> Self {
-        Self {
-            id,
-            object: "chat.completion",
-            created,
-            model,
-            choices: vec![CompletionChoice {
-                index: 0,
-                message: ResponseMessage {
-                    role: "assistant",
-                    content,
-                },
-                finish_reason: "stop",
-            }],
-        }
-    }
-}
-
-#[derive(Serialize)]
-struct CompletionChoice {
-    index: u8,
-    message: ResponseMessage,
-    finish_reason: &'static str,
-}
-
-#[derive(Serialize)]
-struct ResponseMessage {
-    role: &'static str,
-    content: String,
 }
 
 #[derive(Serialize)]
@@ -287,4 +238,58 @@ impl ErrorEnvelope {
 #[derive(Serialize)]
 struct ErrorBody {
     message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::to_bytes;
+    use futures_util::stream;
+    use serde_json::{Value, json};
+
+    async fn events(fragments: Vec<Result<String, String>>) -> Vec<String> {
+        let response = stream_response(
+            Box::pin(stream::iter(fragments)),
+            "chatcmpl-test".to_owned(),
+            123,
+            "test-model".to_owned(),
+        );
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        let body = to_bytes(response.into_body(), 8192).await.unwrap();
+        String::from_utf8(body.to_vec())
+            .unwrap()
+            .split("\n\n")
+            .filter_map(|event| event.strip_prefix("data: ").map(str::to_owned))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn streams_content_then_finish_and_done() {
+        let events = events(vec![Ok("Hello".to_owned()), Ok(" world".to_owned())]).await;
+        assert_eq!(events.len(), 4);
+        for (event, content) in events[..2].iter().zip(["Hello", " world"]) {
+            let chunk: Value = serde_json::from_str(event).unwrap();
+            assert_eq!(chunk["object"], "chat.completion.chunk");
+            assert_eq!(chunk["choices"][0]["delta"]["content"], content);
+        }
+        let finished: Value = serde_json::from_str(&events[2]).unwrap();
+        assert_eq!(finished["choices"][0]["finish_reason"], "stop");
+        assert_eq!(events[3], "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn stream_error_ends_response_without_success_chunk() {
+        let events = events(vec![
+            Ok("Partial".to_owned()),
+            Err("Ollama failed".to_owned()),
+            Ok("Must not be sent".to_owned()),
+        ])
+        .await;
+        assert_eq!(events.len(), 3);
+        assert_eq!(
+            serde_json::from_str::<Value>(&events[1]).unwrap(),
+            json!({"error": {"message": "Ollama failed"}})
+        );
+        assert_eq!(events[2], "[DONE]");
+    }
 }
