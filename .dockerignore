@@ -12,4 +12,8 @@ docllm-frontend/node_modules
 docllm-frontend/dist
 *.pdf
 *.md
+!prompts/
+!prompts/*.md
 notes.md
+markdown.png
+.github

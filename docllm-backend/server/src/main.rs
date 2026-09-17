@@ -27,6 +27,12 @@ async fn main() {
 }
 
 async fn run() -> Result<(), String> {
+    if env::args().nth(1).as_deref() == Some("--prepare-embeddings") {
+        documentllm_core::model::prepare_embedding_model()?;
+        println!("Document embedding model is ready.");
+        return Ok(());
+    }
+
     let address = env::var("DOCUMENTLLM_BIND_ADDRESS")
         .unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned())
         .parse::<SocketAddr>()
@@ -73,7 +79,25 @@ async fn health() -> &'static str {
 }
 
 async fn shutdown_signal() {
-    if let Err(error) = tokio::signal::ctrl_c().await {
-        eprintln!("Failed to listen for shutdown signal: {error}");
+    let interrupt = async {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            eprintln!("Failed to listen for shutdown signal: {error}");
+        }
+    };
+    #[cfg(unix)]
+    let terminate = async {
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut signal) => {
+                signal.recv().await;
+            }
+            Err(error) => eprintln!("Failed to listen for SIGTERM: {error}"),
+        }
+    };
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = interrupt => {},
+        _ = terminate => {},
     }
 }
