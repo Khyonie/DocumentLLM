@@ -1,41 +1,38 @@
 # DocumentLLM
 
-Self-contained RAG chat app for PDF and Markdown documents, with multi-query rewriting, dedupe, and reranking.
+Self-contained RAG chat app for PDF and Markdown documents, with query decomposition, multi-query rewriting, dedupe, and reranking.
 
-HTTP endpoints:
-| Endpoint             | Type   | Description                                                       |
-|----------------------|--------|-------------------------------------------------------------------|
-| /health              | GET    | Returns "ok" if running                                           |
-| /v1/models           | GET    | Returns a list of locally installed models                        |
-| /v1/chat/completions | POST   | Chat with a model                                                 |
-| /ingest              | PUT    | Replaces the RAG database with the selected uploaded documents    |
-| /ingest              | POST   | Appends the selected document to the RAG database                 |
-| /ingest              | DELETE | Wipes the current RAG database                                    |
-| /upload              | GET    | Lists uploaded documents                                          |
-| /upload              | POST   | Uploads one or more documents to the server                       |
+<img width="850" alt="image" src="https://github.com/user-attachments/assets/47e30337-9330-473c-b39d-24dd570be38f" />
 
-Chat responses always stream as OpenAI-style SSE chunks and end with `data: [DONE]`.
-The request does not need a `stream` flag; any supplied value is ignored.
-Structured utility calls also stream from Ollama, then collect the JSON before parsing it.
+# Quickstart
+### Docker 🐳
+```shell
+docker pull ghcr.io/khyonie/documentllm:latest
 
-## Docker
+docker run -d -p 3001:3001 ghcr.io/khyonie/documentllm:latest
+```
+> [!NOTE]
+> This will automatically fetch `gemma4:e4b`, so it can be rapidly installed on remote machines with no setup.
 
-Build and run the app plus Ollama:
+Connect to the website at `127.0.0.1:3001`.
 
-```sh
-docker compose up --build
+### Running from source 🖥️
+> [!IMPORTANT]
+> Ensure `cargo`, `npm`, and `ollama` are all installed.
+
+Clone the repository:
+```shell
+git clone https://github.com/Khyonie/DocumentLLM.git
+
+cd DocumentLLM
+```
+Build the frontend:
+```shell
+npm run build --prefix docllm-frontend/
+```
+Then, start the backend:
+```
+cargo run
 ```
 
-The app listens on port `3001` by default. Set `DOCUMENTLLM_HOST=127.0.0.1`
-to bind only to localhost.
-
-Persistent runtime data:
-
-- `./index` stores the LanceDB RAG index.
-- `./upload` stores uploaded documents.
-- `./fastembed-cache` stores FastEmbed's downloaded embedding model files.
-
-FastEmbed downloads the embedding model the first time ingestion or RAG chat
-needs it. After that, it runs from `./fastembed-cache`. If the deployment
-machine cannot reach Hugging Face, warm this cache on a machine with internet
-access first, then copy `./fastembed-cache` to the deployment machine.
+Connect to the website at `127.0.0.1:3001`.
