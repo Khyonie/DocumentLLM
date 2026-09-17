@@ -17,6 +17,8 @@ use crate::{
 };
 
 const RESULT_LIMIT: usize = 3;
+const NO_INGESTED_DOCUMENTS: &str =
+    "No documents have been ingested. Upload and ingest documents before asking a question.";
 
 pub enum ChatEvent {
     Status(&'static str),
@@ -73,9 +75,7 @@ impl ChatService {
         query: &str,
         report: &(dyn Fn(&'static str) + Send + Sync),
     ) -> Result<ChatContext, String> {
-        let table = database::open_database()
-            .await
-            .map_err(|error| format!("Failed to open database table: {error}"))?;
+        let table = require_ingested_documents(database::open_database().await).await?;
 
         //let sources = retrieve(rag_provider, &table, query, model, RESULT_LIMIT, report)
         //    .await
@@ -148,6 +148,23 @@ impl ChatService {
 struct ChatContext {
     messages: Vec<ChatMessage>,
     sources_section: String,
+}
+
+// Run before decomposition or retrieval so an empty index never triggers an LLM call.
+async fn require_ingested_documents(table: Result<Table, lancedb::Error>) -> Result<Table, String> {
+    let table = match table {
+        Ok(table) => table,
+        Err(lancedb::Error::TableNotFound { .. }) => return Err(NO_INGESTED_DOCUMENTS.to_owned()),
+        Err(error) => return Err(format!("Failed to open database table: {error}")),
+    };
+    let count = table
+        .count_rows(None)
+        .await
+        .map_err(|error| format!("Failed to check ingested documents: {error}"))?;
+    if count == 0 {
+        return Err(NO_INGESTED_DOCUMENTS.to_owned());
+    }
+    Ok(table)
 }
 
 fn generate_answer(client: OllamaClient, mut context: ChatContext) -> AnswerStream {
@@ -250,13 +267,66 @@ fn should_include_sources(answer: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ChatContext, ChatEvent, ChatMessage, ChatService, RetrievalType, RoleType, generate_answer,
-        should_include_sources,
-    };
-    use crate::llm::ollama::tests::mock_ollama;
+    use std::sync::Arc;
+
+    use arrow_array::{Int32Array, RecordBatch};
     use futures_util::StreamExt;
     use serde_json::json;
+
+    use super::{
+        ChatContext, ChatEvent, ChatMessage, ChatService, NO_INGESTED_DOCUMENTS, RetrievalType,
+        RoleType, generate_answer, require_ingested_documents, should_include_sources,
+    };
+    use crate::llm::ollama::tests::mock_ollama;
+
+    #[tokio::test]
+    async fn requires_documents_in_missing_empty_and_cleared_tables() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = lancedb::connect(directory.path().to_str().unwrap())
+            .execute()
+            .await
+            .unwrap();
+        let missing = database.open_table("document_chunks").execute().await;
+        assert_eq!(
+            require_ingested_documents(missing).await.unwrap_err(),
+            NO_INGESTED_DOCUMENTS
+        );
+
+        let batch = RecordBatch::try_from_iter([(
+            "id",
+            Arc::new(Int32Array::from(vec![1])) as arrow_array::ArrayRef,
+        )])
+        .unwrap();
+        let table = database
+            .create_empty_table("document_chunks", batch.schema())
+            .execute()
+            .await
+            .unwrap();
+        assert_eq!(
+            require_ingested_documents(Ok(table.clone())).await.unwrap_err(),
+            NO_INGESTED_DOCUMENTS
+        );
+
+        table.add(batch).execute().await.unwrap();
+        assert!(require_ingested_documents(Ok(table)).await.is_ok());
+
+        database.drop_all_tables(&[]).await.unwrap();
+        let cleared = database.open_table("document_chunks").execute().await;
+        assert_eq!(
+            require_ingested_documents(cleared).await.unwrap_err(),
+            NO_INGESTED_DOCUMENTS
+        );
+    }
+
+    #[tokio::test]
+    async fn does_not_disguise_database_failures_as_an_empty_index() {
+        let error = lancedb::Error::InvalidInput {
+            message: "Invalid database location".to_owned(),
+        };
+        let message = require_ingested_documents(Err(error)).await.unwrap_err();
+        assert!(message.starts_with("Failed to open database table:"));
+        assert!(message.contains("Invalid database location"));
+    }
 
     fn context() -> ChatContext {
         ChatContext {
