@@ -36,3 +36,8 @@ cargo run
 ```
 
 Connect to the website at `127.0.0.1:3001`.
+
+# Program Flow
+
+<img width="540" height="942" alt="llmflow (1)" src="https://github.com/user-attachments/assets/e647d916-ff16-460b-9ee8-0f6c287e2668" />
+
