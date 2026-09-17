@@ -48,7 +48,12 @@ impl FromStr for RetrievalType {
 }
 
 pub trait RagRetrievalProvider {
-    fn retrieve(&self, table: &Table, query: &str) -> impl Future<Output = Result<Vec<SearchHit>>>;
+    fn retrieve(
+        &self,
+        table: &Table,
+        query: &str,
+        report: &(dyn Fn(&'static str) + Send + Sync),
+    ) -> impl Future<Output = Result<Vec<SearchHit>>>;
 }
 
 pub async fn retrieve(
@@ -57,16 +62,17 @@ pub async fn retrieve(
     query: &str,
     chat_model: &str,
     result_limit: usize,
+    report: &(dyn Fn(&'static str) + Send + Sync),
 ) -> Result<Vec<SearchHit>, String> {
     match provider {
         RetrievalType::Basic => BasicRagRetriever::new(result_limit)
-            .retrieve(table, query)
+            .retrieve(table, query, report)
             .await
             .map_err(|error| error.to_string()),
         RetrievalType::MultiQueryReranked => {
             let client = OllamaClient::new(chat_model)?;
             MultiQueryRagProvider::new(client, DEFAULT_REFORMULATED_QUESTIONS, result_limit)
-                .retrieve(table, query)
+                .retrieve(table, query, report)
                 .await
                 .map_err(|error| error.to_string())
         }

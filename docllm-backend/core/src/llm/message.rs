@@ -2,7 +2,7 @@ use schemars::Schema;
 use serde::{Deserialize, Serialize};
 
 /// A message a user will send to an LLM, along with the system context.
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
@@ -68,6 +68,9 @@ impl ChatRequest {
 pub struct ChatStreamResponse {
     pub message: Option<ChatMessage>,
     pub error: Option<String>,
+    #[serde(default)]
+    pub done: bool,
+    pub done_reason: Option<String>,
 }
 
 #[derive(Serialize)]

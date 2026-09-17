@@ -22,7 +22,14 @@ impl BasicRagRetriever {
 }
 
 impl RagRetrievalProvider for BasicRagRetriever {
-    async fn retrieve(&self, table: &Table, query: &str) -> Result<Vec<SearchHit>> {
+    async fn retrieve(
+        &self,
+        table: &Table,
+        query: &str,
+        report: &(dyn Fn(&'static str) + Send + Sync),
+    ) -> Result<Vec<SearchHit>> {
+        report("Searching documents...");
+        tokio::task::yield_now().await;
         let mut model = model::init_model(EmbeddingModel::AllMiniLML6V2)?;
         let query_embedding = database::embed_query(query, &mut model)?
             .ok_or_else(|| anyhow!("Query model returned no embedding"))?;

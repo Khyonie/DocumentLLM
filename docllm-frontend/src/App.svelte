@@ -43,6 +43,7 @@
   }
 
   type ChatStreamChunk = {
+    status?: string
     choices?: Array<{
       delta?: {
         content?: string
@@ -110,6 +111,8 @@
     a network request succeeds or fails.
   */
   let chatError = $state('')
+  // Progress belongs to the active request, never to saved conversation text.
+  let chatStatus = $state('')
   let databaseError = $state('')
   let databaseStatus = $state('No database action has run yet.')
 
@@ -212,6 +215,7 @@
     prompt = ''
     isSending = true
     chatError = ''
+    chatStatus = 'Sending question...'
 
     try {
       /*
@@ -232,13 +236,20 @@
       })
 
       await readChatStream(response)
+      if (!messages.at(-1)?.content.trim()) {
+        throw new Error('The model returned no answer. Please try again or select a different model.')
+      }
     } catch (error) {
       const message = messageFromError(error)
 
       chatError = message
-      replaceLastAssistantMessage(`Sorry, the request failed: ${message}`)
+      // Keep a partial answer visible if the connection fails after text arrives.
+      if (!messages.at(-1)?.content.trim()) {
+        replaceLastAssistantMessage(`Sorry, the request failed: ${message}`)
+      }
     } finally {
       isSending = false
+      chatStatus = ''
     }
   }
 
@@ -246,7 +257,8 @@
     /*
       The backend returns Server-Sent Events (SSE) for streaming chat.
 
-      Each event looks roughly like:
+      Progress arrives before the answer as data: {"status":"Searching documents..."}.
+      Answer events look roughly like:
 
       data: {"choices":[{"delta":{"content":"hello"}}]}
 
@@ -297,6 +309,7 @@
     if (buffer.trim() && handleChatStreamEvent(buffer)) {
       return
     }
+    throw new Error('The response stream ended unexpectedly. The answer may be incomplete.')
   }
 
   function handleChatStreamEvent(eventText: string) {
@@ -322,10 +335,15 @@
       throw new Error(payload.error.message)
     }
 
+    if (typeof payload.status === 'string') {
+      chatStatus = payload.status
+    }
+
     const choice = payload.choices?.at(0)
     const content = choice?.delta?.content
 
     if (content) {
+      chatStatus = ''
       appendToLastAssistantMessage(content)
     }
 
@@ -378,7 +396,7 @@
     /*
       This helper marks the assistant message currently being streamed.
 
-      It is used only for presentation: a temporary "Thinking..." placeholder
+      It is used only for presentation: a temporary progress label
       before the first chunk, plus a small streaming cursor in CSS.
     */
     return isSending && message.role === 'assistant' && messages.at(-1) === message
@@ -611,7 +629,7 @@
           class="message"
           class:from-user={message.role === 'user'}
           class:from-assistant={message.role === 'assistant'}
-          class:is-streaming={isLatestAssistantMessage(message)}
+          class:is-streaming={isLatestAssistantMessage(message) && Boolean(message.content)}
         >
           <strong>{message.role === 'user' ? 'You' : 'Assistant'}</strong>
 
@@ -621,7 +639,12 @@
                 {@html renderMarkdown(message.content)}
               </div>
             {:else if isLatestAssistantMessage(message)}
-              <p class="typing">Thinking...</p>
+              <p class="typing" role="status">
+                <span class="typing-step">{chatStatus || 'Preparing answer...'}</span>
+                <span class="typing-indicator" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </span>
+              </p>
             {/if}
           {:else}
             <p>{message.content}</p>

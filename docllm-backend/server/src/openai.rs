@@ -10,7 +10,10 @@ use axum::{
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use documentllm_core::{database::providers::RetrievalType, llm::ollama::ChatStream};
+use documentllm_core::{
+    chat::{AnswerStream, ChatEvent},
+    database::providers::RetrievalType,
+};
 
 use crate::AppState;
 
@@ -52,17 +55,18 @@ pub(super) async fn chat_completions(
 
     let answer = state
         .chat
-        .stream_answer(&request.model, rag_provider, query)
-        .await
-        .map_err(ApiError::upstream)?;
+        .stream_answer(&request.model, rag_provider, query);
     Ok(stream_response(answer, id, created, request.model))
 }
 
-fn stream_response(mut answer: ChatStream, id: String, created: u64, model: String) -> Response {
+fn stream_response(mut answer: AnswerStream, id: String, created: u64, model: String) -> Response {
     let events = stream! {
         while let Some(fragment) = answer.next().await {
             match fragment {
-                Ok(content) => {
+                Ok(ChatEvent::Status(message)) => {
+                    yield Ok::<Event, Infallible>(json_event(&serde_json::json!({"status": message})));
+                }
+                Ok(ChatEvent::Content(content)) => {
                     let chunk = StreamChunk::content(&id, created, &model, content);
                     yield Ok::<Event, Infallible>(json_event(&chunk));
                 }
@@ -80,7 +84,9 @@ fn stream_response(mut answer: ChatStream, id: String, created: u64, model: Stri
         yield Ok(Event::default().data("[DONE]"));
     };
 
-    Sse::new(events).into_response()
+    Sse::new(events)
+        .keep_alive(axum::response::sse::KeepAlive::default())
+        .into_response()
 }
 
 pub(super) async fn list_models(
@@ -247,7 +253,7 @@ mod tests {
     use futures_util::stream;
     use serde_json::{Value, json};
 
-    async fn events(fragments: Vec<Result<String, String>>) -> Vec<String> {
+    async fn events(fragments: Vec<Result<ChatEvent, String>>) -> Vec<String> {
         let response = stream_response(
             Box::pin(stream::iter(fragments)),
             "chatcmpl-test".to_owned(),
@@ -265,7 +271,11 @@ mod tests {
 
     #[tokio::test]
     async fn streams_content_then_finish_and_done() {
-        let events = events(vec![Ok("Hello".to_owned()), Ok(" world".to_owned())]).await;
+        let events = events(vec![
+            Ok(ChatEvent::Content("Hello".to_owned())),
+            Ok(ChatEvent::Content(" world".to_owned())),
+        ])
+        .await;
         assert_eq!(events.len(), 4);
         for (event, content) in events[..2].iter().zip(["Hello", " world"]) {
             let chunk: Value = serde_json::from_str(event).unwrap();
@@ -280,9 +290,9 @@ mod tests {
     #[tokio::test]
     async fn stream_error_ends_response_without_success_chunk() {
         let events = events(vec![
-            Ok("Partial".to_owned()),
+            Ok(ChatEvent::Content("Partial".to_owned())),
             Err("Ollama failed".to_owned()),
-            Ok("Must not be sent".to_owned()),
+            Ok(ChatEvent::Content("Must not be sent".to_owned())),
         ])
         .await;
         assert_eq!(events.len(), 3);
@@ -290,6 +300,35 @@ mod tests {
             serde_json::from_str::<Value>(&events[1]).unwrap(),
             json!({"error": {"message": "Ollama failed"}})
         );
+        assert_eq!(events[2], "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn progress_is_separate_from_answer_content() {
+        let events = events(vec![
+            Ok(ChatEvent::Status("Searching documents...")),
+            Ok(ChatEvent::Status("Preparing answer...")),
+            Ok(ChatEvent::Content("Answer".to_owned())),
+        ])
+        .await;
+        assert_eq!(events.len(), 5);
+        let status: Value = serde_json::from_str(&events[0]).unwrap();
+        assert_eq!(status, json!({"status": "Searching documents..."}));
+        let answer: Value = serde_json::from_str(&events[2]).unwrap();
+        assert_eq!(answer["choices"][0]["delta"]["content"], "Answer");
+        assert_eq!(events[4], "[DONE]");
+    }
+
+    #[tokio::test]
+    async fn preparation_failure_is_reported_after_status() {
+        let events = events(vec![
+            Ok(ChatEvent::Status("Opening document database...")),
+            Err("Failed to open database table".to_owned()),
+        ])
+        .await;
+        assert_eq!(events.len(), 3);
+        let error: Value = serde_json::from_str(&events[1]).unwrap();
+        assert_eq!(error["error"]["message"], "Failed to open database table");
         assert_eq!(events[2], "[DONE]");
     }
 }

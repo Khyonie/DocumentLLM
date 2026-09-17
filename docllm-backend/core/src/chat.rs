@@ -1,51 +1,66 @@
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, pin::Pin};
 
 use async_stream::try_stream;
-use futures_util::StreamExt;
+use futures_util::{Stream, StreamExt};
+use lancedb::Table;
+use tokio::sync::mpsc;
 
 use crate::{
     database::{
         self,
         providers::{RetrievalType, retrieve},
-    },
-    llm::{
+        retrieval::SearchHit,
+    }, llm::{
         message::{ChatMessage, RoleType},
-        ollama::{ChatStream, OllamaClient, SYSTEM_PROMPT},
-    },
+        ollama::{OllamaClient, SYSTEM_PROMPT},
+    }, query::{UserQuery, decompose_query},
 };
 
 const RESULT_LIMIT: usize = 3;
+
+pub enum ChatEvent {
+    Status(&'static str),
+    Content(String),
+}
+
+pub type AnswerStream = Pin<Box<dyn Stream<Item = Result<ChatEvent, String>> + Send>>;
 
 #[derive(Default)]
 pub struct ChatService;
 
 impl ChatService {
-    pub async fn stream_answer(
+    pub fn stream_answer(
         &self,
         model: &str,
         rag_provider: RetrievalType,
         query: &str,
-    ) -> Result<ChatStream, String> {
-        let context = self.context_for_query(model, rag_provider, query).await?;
-        let mut answer = OllamaClient::new(model)?
-            .stream_chat(context.messages)
-            .await?;
-        let sources_section = context.sources_section;
+    ) -> AnswerStream {
+        let model = model.to_owned();
+        let query = query.to_owned();
         let stream = try_stream! {
-            let mut answer_text = String::new();
+            yield ChatEvent::Status("Opening document database...");
 
-            while let Some(fragment) = answer.next().await {
-                let fragment = fragment?;
-                answer_text.push_str(&fragment);
-                yield fragment;
-            }
+            // Poll preparation and its progress messages together. Dropping the
+            // response stream also cancels preparation, with no detached task.
+            let (sender, mut progress) = mpsc::unbounded_channel();
+            let report = |message| { let _ = sender.send(message); };
+            let context = Self::context_for_query(&model, rag_provider, &query, &report);
+            futures_util::pin_mut!(context);
+            let context = loop {
+                tokio::select! {
+                    biased;
+                    Some(message) = progress.recv() => yield ChatEvent::Status(message),
+                    result = &mut context => break result,
+                }
+            }?;
 
-            if should_include_sources(&answer_text) {
-                yield sources_section;
+            let mut answer = generate_answer(OllamaClient::new(&model)?, context);
+            while let Some(event) = answer.next().await {
+                yield event?;
             }
         };
 
-        Ok(Box::pin(stream))
+        Box::pin(stream)
     }
 
     pub async fn available_models(&self) -> Result<Vec<String>, String> {
@@ -53,18 +68,29 @@ impl ChatService {
     }
 
     async fn context_for_query(
-        &self,
         model: &str,
         rag_provider: RetrievalType,
         query: &str,
+        report: &(dyn Fn(&'static str) + Send + Sync),
     ) -> Result<ChatContext, String> {
         let table = database::open_database()
             .await
             .map_err(|error| format!("Failed to open database table: {error}"))?;
 
-        let sources = retrieve(rag_provider, &table, query, model, RESULT_LIMIT)
-            .await
-            .map_err(|error| format!("Failed to retrieve sources: {error}"))?;
+        //let sources = retrieve(rag_provider, &table, query, model, RESULT_LIMIT, report)
+        //    .await
+        //    .map_err(|error| format!("Failed to retrieve sources: {error}"))?;
+
+        // Build sources from queries
+        let mut sources = Vec::new();
+        let queries = decompose_query(query, model)
+            .await?;
+        for q in queries
+        {
+            let mut query_sources = Self::retrieve_context_from_decomposed_query(q, model, rag_provider, &table, report)
+                .await?;
+            sources.append(&mut query_sources);
+        }
 
         let mut source_numbers = BTreeMap::new();
         let mut source_labels = Vec::new();
@@ -94,6 +120,8 @@ impl ChatService {
         prompt.push_str(&format!("<question>\n{query}\n</question>\n\n"));
         prompt.push_str("Answer the question using the document excerpts above. Cite document-supported claims with numbered superscripts like <sup>1</sup>, matching the source numbers in <available_sources>. Use a citation only when the claim is supported by that source. Do not include footnotes or a Sources section.");
 
+        println!("{}", prompt);
+
         Ok(ChatContext {
             messages: vec![
                 ChatMessage::new(RoleType::System, SYSTEM_PROMPT.to_owned()),
@@ -102,11 +130,65 @@ impl ChatService {
             sources_section: format_sources_section(&source_labels),
         })
     }
+
+    async fn retrieve_context_from_decomposed_query(
+        query: UserQuery,
+        model: &str,
+        rag_provider: RetrievalType,
+        table: &Table,
+        report: &(dyn Fn(&'static str) + Send + Sync),
+    ) -> Result<Vec<SearchHit>, String> {
+        let prompt = format!("{} {}", query.query, query.context); // TODO This probably
+        // isn't the best way to
+        // do this
+        retrieve(rag_provider, table, &prompt, model, RESULT_LIMIT, report).await
+    }
 }
 
 struct ChatContext {
     messages: Vec<ChatMessage>,
     sources_section: String,
+}
+
+fn generate_answer(client: OllamaClient, mut context: ChatContext) -> AnswerStream {
+    Box::pin(try_stream! {
+        for attempt in 0..2 {
+            yield ChatEvent::Status(if attempt == 0 {
+                "Preparing answer..."
+            } else {
+                "No answer received. Retrying..."
+            });
+
+            // Keep the retrieved context for one retry; do not rerun the RAG pipeline.
+            let mut answer = client.stream_chat(context.messages.clone()).await?;
+            let mut answer_text = String::new();
+            let mut has_content = false;
+            while let Some(fragment) = answer.next().await {
+                let fragment = fragment?;
+                answer_text.push_str(&fragment);
+                if has_content {
+                    yield ChatEvent::Content(fragment);
+                } else if !answer_text.trim().is_empty() {
+                    has_content = true;
+                    yield ChatEvent::Content(answer_text.clone());
+                }
+            }
+
+            if has_content {
+                if should_include_sources(&answer_text) && !context.sources_section.is_empty() {
+                    yield ChatEvent::Content(context.sources_section);
+                }
+                return;
+            }
+
+            if attempt == 0 {
+                context.messages.push(ChatMessage::new(RoleType::User, String::from(
+                    "Your previous attempt returned no answer text. Please provide a concise final answer to the question using the supplied excerpts. If they are insufficient, explicitly say so without citations."
+                )));
+            }
+        }
+        Err("The model returned no answer after two attempts. Please try again or select a different model.".to_owned())?;
+    })
 }
 
 fn format_sources_section(sources: &[String]) -> String {
@@ -141,6 +223,9 @@ fn source_number(
 }
 
 fn should_include_sources(answer: &str) -> bool {
+    if answer.trim().is_empty() {
+        return false;
+    }
     let normalized = answer.to_ascii_lowercase();
     let cannot_answer_phrases = [
         "available documents cannot",
@@ -165,7 +250,99 @@ fn should_include_sources(answer: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::should_include_sources;
+    use super::{
+        ChatContext, ChatEvent, ChatMessage, ChatService, RetrievalType, RoleType, generate_answer,
+        should_include_sources,
+    };
+    use crate::llm::ollama::tests::mock_ollama;
+    use futures_util::StreamExt;
+    use serde_json::json;
+
+    fn context() -> ChatContext {
+        ChatContext {
+            messages: vec![ChatMessage::new(
+                RoleType::User,
+                "Question and retrieved excerpts".to_owned(),
+            )],
+            sources_section: "\n\n**Sources**\n1. document.md\n".to_owned(),
+        }
+    }
+
+    fn completed(content: &str) -> String {
+        json!({"message": {"role": "assistant", "content": content}, "done": true, "done_reason": "stop"}).to_string()
+    }
+
+    #[tokio::test]
+    async fn retries_empty_whitespace_and_thinking_only_answers() {
+        for empty in [
+            completed(""),
+            completed(" \n\t"),
+            json!({"message": {"role": "assistant", "content": "", "thinking": "Internal reasoning"}, "done": true}).to_string(),
+        ] {
+            let (client, server) = mock_ollama(vec![empty, completed("Supported answer.")]).await;
+            let events: Vec<_> = generate_answer(client, context()).collect().await;
+            let requests = server.await.unwrap();
+            assert_eq!(requests.len(), 2);
+            assert_eq!(requests[0]["messages"][0], requests[1]["messages"][0]);
+            assert_eq!(requests[1]["stream"], true);
+            assert!(events.iter().all(Result::is_ok));
+            assert!(events.iter().any(|event| matches!(event, Ok(ChatEvent::Status("No answer received. Retrying...")))));
+            let content: String = events.into_iter().filter_map(|event| match event {
+                Ok(ChatEvent::Content(content)) => Some(content),
+                _ => None,
+            }).collect();
+            assert_eq!(content, "Supported answer.\n\n**Sources**\n1. document.md\n");
+        }
+    }
+
+    #[tokio::test]
+    async fn two_empty_attempts_fail_without_content_or_sources() {
+        let (client, server) = mock_ollama(vec![completed(""), completed(" \n")]).await;
+        let events: Vec<_> = generate_answer(client, context()).collect().await;
+        assert_eq!(server.await.unwrap().len(), 2);
+        assert!(matches!(events.last(), Some(Err(error)) if error.contains("after two attempts")));
+        assert!(
+            !events
+                .iter()
+                .any(|event| matches!(event, Ok(ChatEvent::Content(_))))
+        );
+    }
+
+    #[tokio::test]
+    async fn insufficient_answer_is_not_retried_or_given_sources() {
+        let answer = "The available documents cannot sufficiently answer this question.";
+        let (client, server) = mock_ollama(vec![completed(answer)]).await;
+        let events: Vec<_> = generate_answer(client, context()).collect().await;
+        assert_eq!(server.await.unwrap().len(), 1);
+        assert_eq!(events.len(), 2);
+        assert!(matches!(&events[1], Ok(ChatEvent::Content(content)) if content == answer));
+    }
+
+    #[tokio::test]
+    async fn interrupted_answer_is_not_retried_or_given_sources() {
+        let partial =
+            json!({"message": {"role": "assistant", "content": "Partial answer"}, "done": false});
+        let (client, server) = mock_ollama(vec![partial.to_string()]).await;
+        let events: Vec<_> = generate_answer(client, context()).collect().await;
+        assert_eq!(server.await.unwrap().len(), 1);
+        assert_eq!(events.len(), 3);
+        assert!(
+            matches!(&events[1], Ok(ChatEvent::Content(content)) if content == "Partial answer")
+        );
+        assert!(matches!(&events[2], Err(error) if error.contains("before confirming")));
+    }
+
+    #[tokio::test]
+    async fn reports_progress_before_database_or_model_access() {
+        let mut answer =
+            ChatService.stream_answer("unused-model", RetrievalType::Basic, "Question");
+        assert!(matches!(
+            answer.next().await,
+            Some(Ok(ChatEvent::Status("Opening document database...")))
+        ));
+        // Cancelling at this point must not start retrieval in a background task.
+        drop(answer);
+    }
 
     #[test]
     fn includes_sources_for_supported_answer() {
